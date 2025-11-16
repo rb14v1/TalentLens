@@ -5,128 +5,161 @@ import {
   Search,
   LayoutDashboard,
   FileText,
+  UserPlus,
+  SearchCheck,
+  BarChart3,
+  FolderOpen
 } from "lucide-react";
 import "bootstrap-icons/font/bootstrap-icons.css";
-
+ 
 const RecruiterHome = () => {
   const navigate = useNavigate();
-
+ 
+  // ⭐ Updated menuItems with JD Matcher
   const menuItems = [
     {
-      title: "Upload Resume",
-      icon: <Upload size={40} />,
-      desc: "Upload candidate resumes for parsing and analysis.",
+      title: "Add New Candidate",
+      icon: <UserPlus />,
+      desc: "Upload and add a candidate profile to the system.",
       link: "/upload",
     },
     {
-      title: "Retrieve",
-      icon: <Search size={40} />,
-      desc: "Retrieve and search resumes using AI-based matching.",
+      title: "Search Profiles",
+      icon: <SearchCheck />,
+      desc: "Find resumes using intelligent AI matching.",
       link: "/retrieve",
     },
     {
-      title: "Dashboard",
-      icon: <LayoutDashboard size={40} />,
-      desc: "View recruitment statistics and analytics overview.",
+      title: "Insights & Analytics",
+      icon: <BarChart3 />,
+      desc: "View hiring metrics and recruitment statistics.",
       link: "/recruiterdashboard",
     },
     {
-      title: "Manage Resume",
-      icon: <FileText size={40} />,
-      desc: "Edit, delete, and manage uploaded resumes.",
+      title: "Resume Library",
+      icon: <FolderOpen />,
+      desc: "Browse, edit and organize all uploaded resumes.",
       link: "/manageresume",
     },
+    {
+      title: "JD Matcher",
+      icon: <SearchCheck />,
+      desc: "Match resumes with any uploaded Job Description.",
+      link: "/jobdescriptionmatch",
+    },
   ];
-
+ 
   return (
-    <div className="min-h-screen flex bg-gradient-to-br from-[#F8FAFC] via-[#E9F1F4] to-[#E4EEF4]">
-      
-      {/* ===== Sidebar ===== */}
-      <aside className="w-80 bg-gradient-to-b from-[#0F394D] to-[#21B0BE] text-white flex flex-col shadow-lg relative">
-        {/* Header */}
-        <div className="p-6 border-b border-[#1CA9A3]/30">
-          <h2 className="text-2xl font-semibold">Recruiter Panel</h2>
+    <div className="min-h-screen flex bg-gradient-to-br from-[#F5F9FC] via-[#ECF3F6] to-[#E6F0F5]">
+ 
+      {/* ================= SIDEBAR ================= */}
+      <aside className="w-80 bg-gradient-to-b from-[#073C4D] to-[#19A8B6] text-white flex flex-col shadow-xl relative">
+       
+        {/* Sidebar Header */}
+        <div className="p-7 border-b border-white/10">
+          <h2 className="text-2xl font-bold tracking-wide">Recruiter Panel</h2>
           <p className="text-sm text-teal-100 mt-1">Quick Navigation</p>
         </div>
-
-        {/* Sidebar Links */}
-        <div className="flex-1 p-5 overflow-y-auto pb-28 space-y-3">
-          <button onClick={() => navigate("/upload")} className="flex items-center gap-3 p-2 w-full rounded-lg hover:bg-white/20 transition-all"><Upload size={18}/>Upload</button>
-          <button onClick={() => navigate("/retrieve")} className="flex items-center gap-3 p-2 w-full rounded-lg hover:bg-white/20 transition-all"><Search size={18}/>Retrieve</button>
-          <button onClick={() => navigate("/recruiterdashboard")} className="flex items-center gap-3 p-2 w-full rounded-lg hover:bg-white/20 transition-all"><LayoutDashboard size={18}/>Dashboard</button>
-          <button onClick={() => navigate("/manageresume")} className="flex items-center gap-3 p-2 w-full rounded-lg hover:bg-white/20 transition-all"><FileText size={18}/>Manage Resume</button>
+ 
+        {/* Sidebar Buttons */}
+        <div className="flex-1 p-6 overflow-y-auto pb-40 space-y-3">
+          <SidebarItem icon={<Upload size={18} />} label="Upload" link="/upload" navigate={navigate} />
+          <SidebarItem icon={<Search size={18} />} label="Retrieve" link="/retrieve" navigate={navigate} />
+          <SidebarItem icon={<LayoutDashboard size={18} />} label="Dashboard" link="/recruiterdashboard" navigate={navigate} />
+          <SidebarItem icon={<FileText size={18} />} label="Manage Resume" link="/manageresume" navigate={navigate} />
         </div>
-
+ 
         {/* Profile */}
-        <div className="fixed bottom-0 left-0 w-80 p-5 border-t border-[#1CA9A3]/30 bg-gradient-to-b from-[#0F394D]/95 to-[#21B0BE]/95 flex items-center gap-3">
-          <img src="https://randomuser.me/api/portraits/women/68.jpg" alt="Recruiter" className="w-10 h-10 rounded-full border-2 border-white/70"/>
-          <div className="flex-1">
+        <div className="fixed bottom-0 left-0 w-80 p-5 bg-gradient-to-b from-[#073C4D]/95 to-[#19A8B6]/95 border-t border-white/10 flex items-center gap-3 shadow-xl">
+          <img
+            src="https://randomuser.me/api/portraits/women/68.jpg"
+            alt="Recruiter"
+            className="w-11 h-11 rounded-full border-2 border-white/80 shadow-lg"
+          />
+          <div>
             <p className="font-semibold">Emma Johnson</p>
             <p className="text-sm text-teal-100">Recruiter</p>
           </div>
         </div>
       </aside>
-
-      {/* ===== Main Content ===== */}
-      <main className="flex-1 p-10 overflow-y-auto relative">
-        
-        {/* 🔹Professional Home Button (Top-Right) */}
+ 
+      {/* ================= MAIN CONTENT ================= */}
+      <main className="flex-1 p-12 overflow-y-auto relative">
+ 
+        {/* Floating Home Button */}
         <button
           onClick={() => navigate("/recruiterhome")}
-          className="absolute top-8 right-8 flex items-center gap-2 px-6 py-2.5 rounded-full
-                     bg-gradient-to-r from-[#0F394D] to-[#1FB9C0] text-white font-medium
-                     shadow-lg hover:shadow-xl hover:scale-[1.03] transition-all duration-300 z-20"
+          className="absolute top-10 right-10 flex items-center gap-2 px-7 py-3 rounded-full
+                     bg-gradient-to-r from-[#073C4D] to-[#1AB8C0] text-white font-semibold
+                     shadow-lg hover:shadow-2xl hover:scale-[1.04] transition-all duration-300"
         >
           <i className="bi bi-house-door-fill text-lg"></i>
           Home
         </button>
-
+ 
         {/* Background Pattern */}
-        <div className="absolute inset-0 bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')] opacity-10 pointer-events-none"></div>
-
+        <div className="absolute inset-0 bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')] opacity-[0.07] pointer-events-none"></div>
+ 
         <div className="relative z-10 max-w-7xl mx-auto">
-
-          {/* 🌟 Refined Welcome Header */}
+ 
+          {/* Header */}
           <div className="mb-12">
-            <h1 className="text-4xl font-bold text-[#0D1F29] tracking-tight flex items-center gap-2">
-              Welcome, Recruiter 
-              <span className="text-4xl origin-bottom animate-wave">👋</span>
+            <h1 className="text-4xl font-extrabold text-[#0C1C26] flex items-center gap-2">
+              Welcome, Recruiter <span className="text-4xl animate-wave">👋</span>
             </h1>
-
-            <p className="text-gray-600 text-[15px] mt-2 leading-relaxed">
-              Manage your entire recruitment workflow — upload, retrieve, and analyze resumes with ease.
+            <p className="text-gray-600 mt-2 text-[15px]">
+              Manage your entire recruitment workflow — upload, search, analyze, and organize resumes effortlessly.
             </p>
           </div>
-
-          {/* Navigation Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+ 
+          {/* ================= CARDS SECTION ================= */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-10">
+           
             {menuItems.map((item, index) => (
               <div
                 key={index}
                 onClick={() => navigate(item.link)}
-                className="cursor-pointer bg-white rounded-2xl shadow-md hover:shadow-lg 
-                           border border-gray-100 hover:-translate-y-1 transition-all"
+                className="cursor-pointer p-7 rounded-2xl bg-white border border-gray-200
+                           hover:shadow-xl hover:-translate-y-2 transition-all duration-300 group"
               >
-                <div className="p-6 flex flex-col items-center text-center">
-                  <div className="bg-gradient-to-r from-[#0F394D] to-[#21B0BE] text-white p-4 rounded-full mb-4">
-                    {item.icon}
-                  </div>
-                  <h3 className="text-lg font-semibold text-[#0D1F29] mb-2">{item.title}</h3>
-                  <p className="text-sm text-gray-600">{item.desc}</p>
+               
+                {/* Icon Box */}
+                <div className="w-16 h-16 rounded-xl bg-[#F1F5F9] flex items-center justify-center
+                                text-[#073C4D] shadow-sm group-hover:bg-[#E5EDF4] transition-all">
+                  {React.cloneElement(item.icon, { size: 32 })}
                 </div>
+ 
+                {/* Title */}
+                <h3 className="text-xl font-semibold text-[#0D1F29] mt-5">{item.title}</h3>
+ 
+                {/* Description */}
+                <p className="text-gray-600 text-sm mt-2">{item.desc}</p>
               </div>
             ))}
+ 
           </div>
-
+ 
           {/* Footer */}
-          <div className="mt-16 text-center text-gray-500 text-sm">
+          <footer className="mt-16 text-center text-gray-500 text-sm">
             © {new Date().getFullYear()} Recruiter Portal • All rights reserved
-          </div>
-
+          </footer>
         </div>
       </main>
     </div>
   );
 };
-
+ 
+const SidebarItem = ({ icon, label, link, navigate }) => (
+  <button
+    onClick={() => navigate(link)}
+    className="flex items-center gap-4 p-3 w-full text-lg font-medium
+               rounded-xl hover:bg-white/20 hover:translate-x-1 transition-all"
+  >
+    {icon}
+    {label}
+  </button>
+);
+ 
 export default RecruiterHome;
+ 
+ 

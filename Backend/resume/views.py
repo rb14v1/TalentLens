@@ -20,8 +20,11 @@ import requests
 from .services.s3_service import upload_resume_to_s3, list_pdfs, get_pdf_bytes, get_presigned_url, s3, BUCKET
 from .services.extract_data import extract_fields
 from .services.embedding_service import get_text_embedding
-from .services.qdrant_service import upsert_point, search_collection, get_all_points
+from .services.qdrant_service import upsert_point, search_collection, get_all_points, delete_point
 from .services.pdf_parser import extract_text_from_pdf_bytes, parse_resume as simple_parse_resume
+from .services.jd_keyword_service import extract_jd_keywords, match_resume_to_jd
+from .services.pdf_parser import extract_text_from_pdf_bytes
+
 
 
 # ============================
@@ -62,98 +65,129 @@ def home(request):
 # -----------------------------
 class ResumeUploadView(APIView):
     def post(self, request, *args, **kwargs):
-        resume_file = request.FILES.get('resume_file')
-        if not resume_file:
-            return Response({'error': 'No resume file provided'}, status=status.HTTP_400_BAD_REQUEST)
-
-        file_content_type = resume_file.content_type
-        file_content = resume_file.read()
-        s3_buffer = io.BytesIO(file_content)
-        s3_buffer.name = resume_file.name
-
-        extract_buffer = io.BytesIO(file_content)
-        extract_buffer.name = resume_file.name
-
-        # Extract metadata
-        try:
-            extracted_data = extract_fields(extract_buffer)
-        except Exception as e:
-            traceback.print_exc()
-            return Response({'error': f'Text extraction failed: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        candidate_name = extracted_data.get("name", "Unknown")
-
-        try:
-            s3_url = upload_resume_to_s3(s3_buffer, file_content_type, candidate_name)
-        except Exception as e:
-            traceback.print_exc()
-            return Response({'error': f'S3 upload failed: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # experience/cpd override from POST if provided
-        exp_years_post = request.POST.get("experience_years")
-        if exp_years_post and exp_years_post not in ["", "None", "null"]:
+        # ✅ FIX: Check for BOTH 'file' (new) and 'resume_file' (old)
+        resume_files = request.FILES.getlist('file')
+        if not resume_files:
+            resume_files = request.FILES.getlist('resume_file')
+       
+        # Now, if it's *still* empty, return the error
+        if not resume_files:
+            return Response({'error': 'No resume files provided'}, status=status.HTTP_400_BAD_REQUEST)
+ 
+        # MODIFICATION 2: Prepare lists for summary response
+        uploaded_results = []
+        errors = []
+ 
+        # MODIFICATION 3: Loop through all files
+        for resume_file in resume_files:
             try:
-                experience_years = int(exp_years_post)
-            except Exception:
-                experience_years = extracted_data.get("experience_years", 0)
-        else:
-            experience_years = extracted_data.get("experience_years", 0)
-
-        cpd_level_post = request.POST.get("cpd_level")
-        if cpd_level_post and cpd_level_post not in ["", "None", "null"]:
-            try:
-                cpd_level = int(cpd_level_post)
-            except (ValueError, TypeError):
-                cpd_level = extracted_data.get("cpd_level", 1)
-        else:
-            cpd_level = extracted_data.get("cpd_level", 1)
-
-        # sanitize CPD level into accepted bounds
-        try:
-            cpd_level = int(cpd_level)
-        except Exception:
-            cpd_level = 1
-        cpd_level = max(1, min(6, cpd_level))
-
-        # create embedding (text should be present)
-        resume_text = extracted_data.get('resume_text', '') or ''
-        try:
-            embedding = get_text_embedding(resume_text)
-        except Exception as e:
-            traceback.print_exc()
-            return Response({'error': f'Embedding generation failed: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        payload = {
-            "s3_url": s3_url,
-            "candidate_name": candidate_name,
-            "email": extracted_data.get("email"),
-            "experience_years": experience_years,
-            "cpd_level": cpd_level,
-            "skills": extracted_data.get("skills", []),
-            "year_joined": extracted_data.get("year_joined"),
-            "resume_text": resume_text,
-            "file_name": resume_file.name,
-        }
-
-        point_id = str(uuid.uuid4())
-        try:
-            upsert_point(point_id, embedding, payload)
-        except Exception as e:
-            traceback.print_exc()
-            return Response({'error': f'Qdrant upsert failed: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+                # --- Start of your original logic (now indented) ---
+                file_content_type = resume_file.content_type
+                file_content = resume_file.read()
+                s3_buffer = io.BytesIO(file_content)
+                s3_buffer.name = resume_file.name
+ 
+                extract_buffer = io.BytesIO(file_content)
+                extract_buffer.name = resume_file.name
+ 
+                # Extract metadata
+                try:
+                    extracted_data = extract_fields(extract_buffer)
+                except Exception as e:
+                    traceback.print_exc()
+                    # MODIFICATION: Change to raise error for the loop's catch block
+                    raise Exception(f'Text extraction failed: {e}')
+ 
+                candidate_name = extracted_data.get("name", "Unknown")
+ 
+                try:
+                    s3_url = upload_resume_to_s3(s3_buffer, file_content_type, candidate_name)
+                except Exception as e:
+                    traceback.print_exc()
+                    raise Exception(f'S3 upload failed: {e}')
+ 
+                # experience/cpd override from POST if provided
+                exp_years_post = request.POST.get("experience_years")
+                if exp_years_post and exp_years_post not in ["", "None", "null"]:
+                    try:
+                        experience_years = int(exp_years_post)
+                    except Exception:
+                        experience_years = extracted_data.get("experience_years", 0)
+                else:
+                    experience_years = extracted_data.get("experience_years", 0)
+ 
+                cpd_level_post = request.POST.get("cpd_level")
+                if cpd_level_post and cpd_level_post not in ["", "None", "null"]:
+                    try:
+                        cpd_level = int(cpd_level_post)
+                    except (ValueError, TypeError):
+                        cpd_level = extracted_data.get("cpd_level", 1)
+                else:
+                    cpd_level = extracted_data.get("cpd_level", 1)
+ 
+                # sanitize CPD level into accepted bounds
+                try:
+                    cpd_level = int(cpd_level)
+                except Exception:
+                    cpd_level = 1
+                cpd_level = max(1, min(6, cpd_level))
+ 
+                # create embedding (text should be present)
+                resume_text = extracted_data.get('resume_text', '') or ''
+                try:
+                    embedding = get_text_embedding(resume_text)
+                except Exception as e:
+                    traceback.print_exc()
+                    raise Exception(f'Embedding generation failed: {e}')
+ 
+                payload = {
+                    "s3_url": s3_url,
+                    "candidate_name": candidate_name,
+                    "email": extracted_data.get("email"),
+                    "experience_years": experience_years,
+                    "cpd_level": cpd_level,
+                    "skills": extracted_data.get("skills", []),
+                    "year_joined": extracted_data.get("year_joined"),
+                    "resume_text": resume_text,
+                    "file_name": resume_file.name,
+                }
+ 
+                point_id = str(uuid.uuid4())
+                try:
+                    upsert_point(point_id, embedding, payload)
+                except Exception as e:
+                    traceback.print_exc()
+                    raise Exception(f'Qdrant upsert failed: {e}')
+ 
+                # MODIFICATION 4: Append success data
+                uploaded_results.append({
+                    'file': resume_file.name,
+                    'qdrant_id': point_id,
+                    'data': payload
+                })
+                # --- End of your original logic ---
+           
+            except Exception as e:
+                # MODIFICATION 5: Catch per-file errors
+                print(f"❌ Error processing {resume_file.name}: {e}")
+                traceback.print_exc()
+                errors.append(f"{resume_file.name}: {str(e)}")
+                continue # Move to the next file
+       
+        # MODIFICATION 6: Return summary response
         return Response({
-            'message': 'Upload and processing complete!',
-            'data': payload,
-            'qdrant_id': point_id
-        }, status=status.HTTP_201_CREATED)
-
-
+            'message': f"Upload complete. Processed {len(uploaded_results)} files.",
+            'uploaded_count': len(uploaded_results),
+            'uploaded_data': uploaded_results,
+            'errors': errors
+        }, status=status.HTTP_201_CREATED if uploaded_results else status.HTTP_200_OK)
+ 
+ 
 # -----------------------------
 # Search endpoint (kept largely as-is)
 # -----------------------------
 from qdrant_client.http import models  # used for filter building
-
+ 
 SYNONYM_MAP = {
     'script': ['python', 'bash', 'powershell', 'perl', 'ruby', 'javascript'],
     'language': ['python', 'java', 'c++', 'javascript', 'go'],
@@ -728,21 +762,23 @@ class ResumeDetailView(APIView):
 # Delete resume (by qdrant id)
 # -----------------------------
 class ResumeDeleteView(APIView):
-    def delete(self, request, pk):
+    # ✅ FIX: Changed 'pk' to 'id' to match the URL
+    def delete(self, request, id):
+        if not id:
+            return Response({'error': 'No resume ID provided'}, status=status.HTTP_400_BAD_REQUEST)
+ 
         try:
-            # try upsert_point or qdrant service delete if available. Many qdrant helpers implement delete_by_id.
-            # If your qdrant_service exposes a delete function, replace this with that call.
-            # For safety, we will attempt to call upsert_point with None to indicate removal is needed.
-            # But ideally implement a delete_point function in services.qdrant_service.
-            from .services.qdrant_service import delete_point_by_id
-            delete_point_by_id(pk)
-            return Response({"message": "Resume deleted successfully"}, status=status.HTTP_200_OK)
-        except ImportError:
-            # delete_point_by_id not present in your service module
-            return Response({"error": "Delete not implemented on qdrant_service. Add delete_point_by_id(id) to services.qdrant_service"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            # ✅ FIX: Use the 'id' variable
+            delete_point(id)
+            return Response({"message": f"Resume with id {id} deleted successfully."}, status=status.HTTP_200_OK)
         except Exception as e:
             traceback.print_exc()
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"error": f"Failed to delete resume: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            traceback.print_exc()
+            return Response({"error": f"Failed to delete resume: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+ 
+ 
 @api_view(['GET'])
 def analytics_overview(request):
     try:
@@ -789,3 +825,205 @@ def analytics_overview(request):
         import traceback
         traceback.print_exc()
         return Response({"error": str(e)}, status=500)
+# ====================================================================
+# ✅ NEW JD MATCHING ENDPOINTS
+# ====================================================================
+
+@csrf_exempt
+@api_view(['POST'])
+def extract_jd(request):
+    """
+    Extract keywords from Job Description PDF.
+    
+    Endpoint: POST /api/skill-analytics/extract_jd/
+    Payload: multipart/form-data with 'jd_file'
+    Response: { jd_text, keywords: [...], keyword_count }
+    """
+    print("\n" + "="*60)
+    print("=== EXTRACT_JD CALLED ===")
+    
+    try:
+        # Get JD file from request
+        jd_file = request.FILES.get('jd_file')
+        if not jd_file:
+            return Response(
+                {'error': 'No JD file provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Read file content
+        file_content = jd_file.read()
+        
+        # Extract text from PDF
+        try:
+            jd_text = extract_text_from_pdf_bytes(file_content)
+            print(f"✅ Extracted {len(jd_text)} characters from JD")
+        except Exception as e:
+            print(f"❌ Failed to extract PDF: {e}")
+            return Response(
+                {'error': f'Failed to extract PDF: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        # Extract keywords from JD text
+        try:
+            keywords = extract_jd_keywords(jd_text, top_k=25)
+            print(f"✅ Extracted {len(keywords)} keywords")
+        except Exception as e:
+            print(f"❌ Failed to extract keywords: {e}")
+            return Response(
+                {'error': f'Failed to extract keywords: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        print("="*60 + "\n")
+        
+        return Response({
+            'jd_text': jd_text,
+            'keywords': keywords,
+            'keyword_count': len(keywords)
+        }, status=status.HTTP_200_OK)
+    
+    except Exception as e:
+        print(f"❌ CRITICAL ERROR: {e}")
+        traceback.print_exc()
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@csrf_exempt
+@api_view(['POST'])
+def jd_match(request):
+    """
+    Match all resumes in Qdrant against a Job Description.
+    
+    Endpoint: POST /api/skill-analytics/jd_match/
+    Payload: multipart/form-data with 'jd_file'
+    Response: {
+        jd_keywords: [...],
+        matches: [{ candidate_name, email, match_percentage, ... }],
+        total_matches: N,
+        success: true
+    }
+    """
+    print("\n" + "="*60)
+    print("=== JD_MATCH CALLED ===")
+    
+    jd_text = None
+    jd_keywords = []
+    
+    try:
+        # ===== STEP 1: Get JD text =====
+        
+        # Check for file upload
+        jd_file = request.FILES.get('jd_file')
+        if jd_file:
+            print("[1] Processing uploaded JD file...")
+            try:
+                file_content = jd_file.read()
+                jd_text = extract_text_from_pdf_bytes(file_content)
+                print(f"✅ Extracted {len(jd_text)} chars from PDF")
+            except Exception as e:
+                print(f"❌ PDF extraction failed: {e}")
+                return Response(
+                    {'error': f'PDF extraction failed: {str(e)}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        
+        # Check for JSON body
+        elif request.data and 'jd_text' in request.data:
+            print("[1] Processing raw JD text...")
+            jd_text = request.data.get('jd_text', '')
+        
+        if not jd_text:
+            return Response(
+                {'error': 'No JD file or text provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # ===== STEP 2: Extract keywords from JD =====
+        print("[2] Extracting JD keywords...")
+        try:
+            jd_keywords = extract_jd_keywords(jd_text, top_k=25)
+            print(f"✅ Found {len(jd_keywords)} keywords: {jd_keywords[:5]}...")
+        except Exception as e:
+            print(f"❌ Keyword extraction failed: {e}")
+            return Response(
+                {'error': f'Keyword extraction failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        # ===== STEP 3: Get all resumes from Qdrant =====
+        print("[3] Fetching all resumes from Qdrant...")
+        try:
+            all_resumes = get_all_points()
+            print(f"✅ Found {len(all_resumes)} resumes in Qdrant")
+        except Exception as e:
+            print(f"❌ Failed to fetch resumes: {e}")
+            return Response(
+                {'error': f'Failed to fetch resumes: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        # ===== STEP 4: Match each resume against JD =====
+        print("[4] Matching resumes against JD...")
+        matches = []
+        
+        for idx, resume in enumerate(all_resumes, 1):
+            try:
+                payload = resume.payload or {}
+                
+                # Get resume skills
+                resume_skills = payload.get('skills', [])
+                if isinstance(resume_skills, str):
+                    resume_skills = [resume_skills]
+                
+                # Match resume against JD
+                match_result = match_resume_to_jd(resume_skills, jd_keywords)
+                
+                # Build response data
+                candidate_data = {
+                    'id': resume.id,
+                    'candidate_name': payload.get('candidate_name', 'Unknown'),
+                    'email': payload.get('email', 'N/A'),
+                    'experience_years': payload.get('experience_years', 0),
+                    'cpd_level': payload.get('cpd_level', 0),
+                    'skills': resume_skills,
+                    'match_percentage': match_result['match_percentage'],
+                    'matched_skills': match_result['matched'],
+                    'missing_skills': match_result['missing'],
+                    'match_count': match_result['match_count'],
+                    'total_required': match_result['total_required'],
+                    's3_url': payload.get('s3_url', ''),
+                }
+                
+                matches.append(candidate_data)
+                print(f"  [{idx}] {candidate_data['candidate_name']}: {candidate_data['match_percentage']}% match")
+            
+            except Exception as e:
+                print(f"  ❌ Error processing resume {idx}: {e}")
+                continue
+        
+        # Sort by match percentage (descending)
+        matches.sort(key=lambda x: x['match_percentage'], reverse=True)
+        
+        print("="*60)
+        print(f"✅ Matching complete: {len(matches)} resumes matched")
+        print("="*60 + "\n")
+        
+        return Response({
+            'jd_keywords': jd_keywords,
+            'matches': matches,
+            'total_matches': len(matches),
+            'success': True
+        }, status=status.HTTP_200_OK)
+    
+    except Exception as e:
+        print(f"❌ CRITICAL ERROR in jd_match: {e}")
+        traceback.print_exc()
+        return Response(
+            {'error': str(e), 'success': False},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

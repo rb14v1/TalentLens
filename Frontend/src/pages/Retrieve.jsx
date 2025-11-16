@@ -9,7 +9,6 @@ import {
   LogOut,
   Search,
   XCircle,
-  Download,
   X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -240,22 +239,6 @@ function Retrieve() {
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-1 font-medium">Department</label>
-              <select
-                value={department}
-                onChange={(e) => setDepartment(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg p-2 bg-white/70 outline-none"
-              >
-                <option value="">Select Department</option>
-                <option value="Engineering">Engineering</option>
-                <option value="HR">HR</option>
-                <option value="Sales">Sales</option>
-                <option value="Marketing">Marketing</option>
-                <option value="Finance">Finance</option>
-              </select>
-            </div>
-
-            <div>
               <label className="block text-gray-700 mb-1 font-medium">CPD Level</label>
               <select
                 value={cpdLevel}
@@ -319,10 +302,6 @@ function Retrieve() {
                     </div>
                   </div>
 
-                  <p className="text-sm text-gray-600">
-                    <span className="font-medium">Department:</span>{" "}
-                    {resume.department || "—"}
-                  </p>
                   <p className="text-sm text-gray-600 mb-4">
                     <span className="font-medium">CPD Level:</span>{" "}
                     {resume.cpdLevel}
@@ -334,13 +313,6 @@ function Retrieve() {
                       className="flex-1 w-full bg-[#0F394D] text-white py-2 rounded-lg hover:bg-[#15556b] transition"
                     >
                       View Resume
-                    </button>
-
-                    <button
-                      onClick={() => handleDownload(resume)}
-                      className="px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition flex items-center gap-2"
-                    >
-                      <Download size={16} /> Download
                     </button>
                   </div>
                 </div>
@@ -378,10 +350,7 @@ function Retrieve() {
             </div>
 
             <div className="text-sm text-gray-700 space-y-1 mb-4">
-              <p>
-                <span className="font-medium">Department:</span>{" "}
-                {selectedResume.department || "—"}
-              </p>
+             
               <p>
                 <span className="font-medium">CPD Level:</span>{" "}
                 {selectedResume.cpdLevel}
@@ -453,12 +422,7 @@ function Retrieve() {
             {/* FOOTER BUTTONS */}
             <div className="flex gap-3">
               {/* DOWNLOAD */}
-              <button
-                onClick={() => handleDownload(selectedResume)}
-                className="flex-1 w-full bg-[#0F394D] text-white py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-[#15556b] transition"
-              >
-                <Download size={18} /> Download Resume
-              </button>
+              
 
               {/* OPEN FULL VIEW PAGE — CORRECTED */}
               <button
