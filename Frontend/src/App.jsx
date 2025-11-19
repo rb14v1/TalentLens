@@ -1,3 +1,4 @@
+import React, { useState } from "react"; // <-- 1. Import useState
 import { Routes, Route } from "react-router-dom";
 import RecruiterHome from "./pages/RecruiterHome";
 import Upload from "./pages/Upload";
@@ -13,6 +14,9 @@ import Description from "./pages/Description";
 import Preview from "./pages/Preview";
 
 function App() {
+  // --- 2. Create the shared state here ---
+  const [jdData, setJdData] = useState(null);
+
   return (
     <Routes>
       <Route path="/" element={<RecruiterHome />} />
@@ -21,12 +25,22 @@ function App() {
       <Route path="/manageresume" element={<Manageresume />} />
       <Route path="/recruiterdashboard" element={<Recruiterdashboard />} />
       <Route path="/analytics-details" element={<AnalyticsDetails />} />
-      <Route path="/viewresume" element={<ViewResume/>} />
-      <Route path="/jobdescriptionmatch" element={<JobDescriptionMatch/>} />
-      <Route path="/managerdashboard" element={<Managerdashboard/>} />
-      <Route path="/managerpage" element={<Managerpage/>} />
-      <Route path="/description" element={<Description/>} />
-      <Route path="/preview" element={<Preview/>} />
+      <Route path="/viewresume" element={<ViewResume />} />
+      <Route path="/jobdescriptionmatch" element={<JobDescriptionMatch />} />
+      <Route path="/managerdashboard" element={<Managerdashboard />} />
+      <Route path="/managerpage" element={<Managerpage />} />
+      
+      {/* --- 3. Pass the state and function as props --- */}
+      <Route
+        path="/description"
+        element={<Description jdData={jdData} setJdData={setJdData} />}
+      />
+
+      {/* --- 4. Pass the data to the Preview page --- */}
+      <Route
+        path="/preview"
+        element={<Preview jdData={jdData} setJdData={setJdData} />} // Pass setJdData here too
+      />
     </Routes>
   );
 }

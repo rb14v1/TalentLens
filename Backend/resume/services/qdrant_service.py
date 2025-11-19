@@ -11,6 +11,7 @@ from qdrant_client.http.models import (
     Filter,
     SearchParams,
 )
+from qdrant_client.http.models import Filter, FieldCondition, MatchValue
 
 # ======================================================
 # Load ENV
@@ -283,3 +284,42 @@ try:
     initialize_qdrant_collection()
 except Exception as e:
     print(f"❌ Qdrant initialization error: {e}")
+
+
+# ============================================================
+# ✅ Find Points by Hash (FIXED)
+# ============================================================
+def find_points_by_hashes(hashes: list):
+    """
+    Finds points in the 'resumes' collection that match any of the provided file hashes.
+    Returns a set of hashes that were found.
+    """
+    if not qdrant_client:  # <-- Also add this check
+        raise RuntimeError("❌ Qdrant not initialized")
+        
+    if not hashes:
+        return set()
+    
+    try:
+        hash_filter = Filter(
+            should=[
+                FieldCondition(
+                    key="file_hash",
+                    match=MatchValue(value=h)
+                ) for h in hashes
+            ]
+        )
+
+        # ✅ FIX: Use 'qdrant_client.scroll' to match the client name in this file
+        found_points, _ = qdrant_client.scroll(
+            collection_name=COLLECTION_NAME,
+            scroll_filter=hash_filter,
+            limit=len(hashes),
+            with_payload=["file_hash"]
+        )
+        
+        return {point.payload["file_hash"] for point in found_points if "file_hash" in point.payload}
+
+    except Exception as e:
+        print(f"❌ Qdrant hash check error: {e}")
+        return set()

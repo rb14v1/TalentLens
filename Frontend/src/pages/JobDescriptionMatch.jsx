@@ -1,56 +1,53 @@
 import React, { useState } from "react";
-import { Upload, Search, ArrowLeft, CheckCircle, XCircle } from "lucide-react";
+import { Upload, Search, ArrowLeft, X, Eye, Loader } from "lucide-react"; // Ensure icons are imported
 import { useNavigate } from "react-router-dom";
+import { API_BASE_URL } from "../config";
 
 const JobDescriptionMatch = () => {
   const navigate = useNavigate();
 
   const [jdFile, setJdFile] = useState(null);
-  const [jobDescription, setJobDescription] = useState(null);
-  const [matchingResumes, setMatchingResumes] = useState([]);
-  const [selectedResume, setSelectedResume] = useState(null);
+  const [jdText, setJdText] = useState("");
   const [jdKeywords, setJdKeywords] = useState([]);
+  const [matchingResumes, setMatchingResumes] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [matchCount, setMatchCount] = useState(null);
   const [error, setError] = useState(null);
+
+  // Modal state
+  const [showModal, setShowModal] = useState(false);
+  const [selectedResumeUrl, setSelectedResumeUrl] = useState("");
+  const [selectedResumeName, setSelectedResumeName] = useState("");
+  const [loadingPdf, setLoadingPdf] = useState(false);
 
   const handleFileChange = (e) => setJdFile(e.target.files[0]);
 
-  // ✅ NEW: Handle view resume function
-  const handleViewResume = async (resume) => {
-    try {
-      // Use file_name from the resume data
-      const fileName = resume.file_name || 'Unknown.pdf';
-      
-      if (!fileName) {
-        alert("No file name available for this resume!");
-        return;
-      }
+  // =====================================================
+  // ✅ FIXED: View Resume (Same logic as Retrieve.jsx)
+  // =====================================================
+  const handleViewResume = (resume) => {
+    // 1. Get the filename
+    const fileName =
+      resume.file_name ||
+      resume.readable_file_name ||
+      (resume.s3_url ? resume.s3_url.split("/").pop() : null);
 
-      // Call backend to get presigned URL
-      const response = await fetch(`http://localhost:8000/view_resume/?file_name=${encodeURIComponent(fileName)}`);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to get resume: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      
-      // Open the PDF in a new tab
-      if (data.url) {
-        window.open(data.url, '_blank');
-      } else if (data.presigned_url) {
-        window.open(data.presigned_url, '_blank');
-      } else {
-        alert("Could not retrieve PDF URL");
-      }
-    } catch (err) {
-      console.error("Error viewing resume:", err);
-      alert("Failed to view resume: " + err.message);
+    if (!fileName) {
+      alert("Cannot open: Missing file name");
+      return;
     }
+
+    // 2. Open the backend URL directly
+    // Since the backend now returns HTML, this will open the PDF viewer
+    const viewUrl = `${API_BASE_URL}/view_resume/?file_name=${encodeURIComponent(
+      fileName
+    )}`;
+    window.open(viewUrl, "_blank");
   };
 
   const handleMatchResumes = async () => {
     if (!jdFile) return setError("Please upload a Job Description file.");
+
     setError(null);
     setLoading(true);
 
@@ -58,27 +55,35 @@ const JobDescriptionMatch = () => {
       const formData = new FormData();
       formData.append("jd_file", jdFile);
 
-      // ✅ Updated: Call the correct endpoint
-      const matchResponse = await fetch("http://localhost:8000/jd_match/", {
+      console.log("📤 Uploading JD file:", jdFile.name);
+
+      // Call backend
+      const matchResponse = await fetch(`${API_BASE_URL}/jd-match/`, {
         method: "POST",
         body: formData,
       });
 
       if (!matchResponse.ok) {
+        const errorText = await matchResponse.text();
+        console.error("❌ Backend error:", errorText);
         throw new Error(`Failed to match resumes: ${matchResponse.statusText}`);
       }
 
       const matchData = await matchResponse.json();
 
-      // ✅ Updated: Match new backend response format
-      setMatchingResumes(matchData.matches || []);
+      console.log("🔍 Backend Response:", matchData);
+
+      // Extract data from response
+      setJdText(matchData.jd_text || "");
       setJdKeywords(matchData.jd_keywords || []);
-      
-      if (matchData.matches && matchData.matches.length > 0) {
-        setSelectedResume(matchData.matches[0]);
+      setMatchingResumes(matchData.matches || []);
+      setMatchCount(matchData.total_matches || 0);
+
+      if (!matchData.jd_text) {
+        console.warn("⚠️ No jd_text in response");
       }
     } catch (err) {
-      console.error("Error:", err);
+      console.error("❌ Error:", err);
       setError("Something went wrong. Please try again.");
     }
 
@@ -87,41 +92,41 @@ const JobDescriptionMatch = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#E1F0F4] to-[#F7FBFC] p-12 relative">
-
       {/* BACK BUTTON */}
       <button
         onClick={() => navigate("/")}
-        className="absolute top-6 right-6 flex items-center gap-2 px-6 py-2.5 rounded-full
-        bg-gradient-to-r from-[#073C4D] to-[#18A9B7] text-white font-medium
-        shadow-lg hover:shadow-xl hover:scale-[1.03] transition-all"
+        className="absolute top-8 right-8 flex items-center gap-2 px-6 py-3 rounded-full
+        bg-gradient-to-r from-[#073C4D] to-[#18A9B7] text-white font-semibold shadow-lg
+        hover:shadow-xl hover:scale-[1.03] transition-all z-10"
       >
         <ArrowLeft size={18} />
         Back
       </button>
 
       {/* HEADER */}
-      <div className="text-center">
-        <h1 className="text-5xl font-extrabold text-[#053245] tracking-tight">
+      <div className="text-center mt-10 mb-14">
+        <h1 className="text-5xl font-black text-[#053245] tracking-tight mb-4">
           Job Description Match
         </h1>
-        <p className="text-gray-600 mt-3 text-lg">
-          Upload a JD and let the AI match it against your resume library.
+        <p className="text-gray-600 text-lg max-w-2xl mx-auto">
+          Upload a JD document, then click <strong>Match Resumes</strong>.
         </p>
       </div>
 
       {/* UPLOAD BOX */}
-      <div className="max-w-3xl mx-auto mt-10 bg-white rounded-3xl p-8 shadow-lg border border-gray-100">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-
+      <div className="max-w-3xl mx-auto bg-white rounded-3xl p-8 shadow-xl border border-gray-100">
+        <div className="flex flex-col sm:flex-row gap-5 items-center justify-between">
           {/* Upload Button */}
-          <label className="cursor-pointer flex items-center gap-3 text-[#073C4D] bg-[#F3FAFC] px-6 py-3 rounded-xl border border-gray-300 hover:bg-[#E9F5F7] transition shadow-sm w-full sm:w-auto">
+          <label className="cursor-pointer flex items-center gap-3 text-[#073C4D] bg-[#F3FAFC] px-6 py-3 w-full sm:w-auto rounded-xl border border-gray-300 hover:bg-[#E9F5F7] transition shadow-sm">
             <Upload size={22} />
-            <span>{jdFile ? jdFile.name : "Choose Job Description File"}</span>
-            <input 
-              type="file" 
-              accept=".pdf" 
-              className="hidden" 
-              onChange={handleFileChange} 
+            <span className="font-medium">
+              {jdFile ? jdFile.name : "Choose Job Description File"}
+            </span>
+            <input
+              type="file"
+              accept=".pdf"
+              className="hidden"
+              onChange={handleFileChange}
             />
           </label>
 
@@ -129,7 +134,9 @@ const JobDescriptionMatch = () => {
           <button
             onClick={handleMatchResumes}
             disabled={loading || !jdFile}
-            className="px-8 py-3 rounded-xl bg-gradient-to-r from-[#053245] to-[#12A7B3] text-white font-semibold shadow-md hover:shadow-xl hover:scale-[1.03] disabled:opacity-50 transition flex items-center gap-2"
+            className="w-full sm:w-auto px-8 py-3 rounded-xl bg-gradient-to-r
+            from-[#053245] to-[#12A7B3] text-white font-semibold shadow-md
+            hover:shadow-xl hover:scale-[1.03] disabled:opacity-50 transition flex items-center gap-2 justify-center"
           >
             <Search size={20} />
             {loading ? "Matching..." : "Match Resumes"}
@@ -137,205 +144,214 @@ const JobDescriptionMatch = () => {
         </div>
       </div>
 
-      {/* ERROR */}
-      {error && <p className="text-center mt-4 text-red-600 font-semibold">{error}</p>}
-
-      {/* MAIN GRID */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 mt-14">
-
-        {/* ============ LEFT PANEL: MATCH SCORE + KEYWORDS ============ */}
-        <div className="bg-white rounded-3xl p-8 shadow-xl border border-gray-100">
-
-          {/* MATCH SCORE */}
-          {selectedResume && (
-            <div className="text-center mb-8">
-              <h2 className="text-3xl font-bold text-[#073C4D] mb-3">
-                {selectedResume.match_percentage}% Match
-              </h2>
-
-              <div className="w-full h-3 bg-gray-200 rounded-full mt-3">
-                <div
-                  className="h-full bg-gradient-to-r from-green-500 to-emerald-600 rounded-full"
-                  style={{ width: `${selectedResume.match_percentage}%` }}
-                ></div>
-              </div>
-            </div>
-          )}
-
-          {/* MATCHED KEYWORDS */}
-          <h3 className="text-lg font-bold text-[#073C4D] mb-3 flex items-center gap-2">
-            <CheckCircle className="text-green-600" /> Matched Keywords ({selectedResume?.matched_skills.length || 0})
-          </h3>
-
-          {selectedResume && selectedResume.matched_skills.length > 0 ? (
-            <div className="flex flex-wrap gap-2 mb-8">
-              {selectedResume.matched_skills.map((skill, i) => (
-                <span
-                  key={i}
-                  className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium"
-                >
-                  {skill}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p className="text-gray-500 mb-8">No matched keywords yet...</p>
-          )}
-
-          {/* UNMATCHED KEYWORDS */}
-          <h3 className="text-lg font-bold text-[#073C4D] mb-3 flex items-center gap-2">
-            <XCircle className="text-red-600" /> Missing Keywords ({selectedResume?.missing_skills.length || 0})
-          </h3>
-
-          {selectedResume && selectedResume.missing_skills.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {selectedResume.missing_skills.map((skill, i) => (
-                <span
-                  key={i}
-                  className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm font-medium"
-                >
-                  {skill}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p className="text-gray-500">No missing keywords yet...</p>
-          )}
-        </div>
-
-        {/* ============ RIGHT PANEL: RESUME PREVIEW ============ */}
-        <div className="bg-white rounded-3xl p-8 shadow-xl border border-gray-100">
-
-          <h3 className="text-2xl font-bold text-[#053245] mb-5">
-            Resume Preview
-          </h3>
-
-          {!selectedResume ? (
-            <p className="text-gray-500 italic">No resume selected…</p>
-          ) : (
-            <div className="space-y-4 text-gray-700">
-
-              <div>
-                <h2 className="text-xl font-bold text-[#073C4D]">{selectedResume.candidate_name}</h2>
-                <p>{selectedResume.email}</p>
-              </div>
-
-              <div>
-                <h4 className="font-bold text-[#053245]">Experience:</h4>
-                <p>{selectedResume.experience_years} years</p>
-              </div>
-
-              <div>
-                <h4 className="font-bold text-[#053245]">Skills:</h4>
-                <p className="text-sm">{selectedResume.skills?.join(", ") || "N/A"}</p>
-              </div>
-
-              {/* ✅ NEW: View Resume Button */}
-              <div className="mt-6 pt-6 border-t border-gray-200">
-                <button
-                  onClick={() => handleViewResume(selectedResume)}
-                  className="w-full px-4 py-2 bg-gradient-to-r from-[#053245] to-[#12A7B3] text-white rounded-lg font-semibold hover:shadow-lg transition"
-                >
-                  📄 View Full Resume
-                </button>
-              </div>
-
-            </div>
-          )}
-        </div>
-
+      {/* STATUS MESSAGE */}
+      <div className="text-center mt-6">
+        {error && <p className="text-red-600 font-semibold">{error}</p>}
+        {matchCount !== null && !error && (
+          <p className="text-green-600 font-medium text-lg">
+            ✓ Found {matchCount} matching resumes
+          </p>
+        )}
       </div>
 
-      {/* MATCHING RESULTS TABLE */}
-      {matchingResumes.length > 0 && (
-        <div className="max-w-7xl mx-auto mt-14 bg-white rounded-3xl p-8 shadow-xl border border-gray-100">
-          <h3 className="text-2xl font-bold text-[#053245] mb-6">
-            👥 Matching Resumes ({matchingResumes.length})
-          </h3>
+      {/* MAIN GRID */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 mt-12 max-w-7xl mx-auto">
+        {/* LEFT: JD PREVIEW */}
+        <div className="bg-white rounded-3xl p-8 shadow-xl border border-gray-100">
+          <h2 className="text-2xl font-bold text-[#053245] mb-5">
+            📄 Job Description Preview
+          </h2>
 
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-[#F3FAFC] border-b border-gray-200">
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-[#073C4D]">Name</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-[#073C4D]">Email</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-[#073C4D]">Experience</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-[#073C4D]">Match %</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-[#073C4D]">Matched Skills</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-[#073C4D]">Missing Skills</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-[#073C4D]">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {matchingResumes.map((resume, idx) => (
-                  <tr
-                    key={idx}
-                    className={`border-b border-gray-100 hover:bg-[#F9FDFE] transition cursor-pointer ${
-                      selectedResume?.id === resume.id ? "bg-[#E9F5F7]" : ""
-                    }`}
-                    onClick={() => setSelectedResume(resume)}
-                  >
-                    <td className="px-4 py-3 font-medium text-gray-900">{resume.candidate_name}</td>
-                    <td className="px-4 py-3 text-gray-700">{resume.email}</td>
-                    <td className="px-4 py-3 text-gray-700">{resume.experience_years} yrs</td>
-                    <td className="px-4 py-3">
-                      <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+          {!jdText ? (
+            <p className="text-gray-500 italic text-lg mt-6">
+              Job description content here...
+            </p>
+          ) : (
+            <div className="space-y-6">
+              {/* JD Text */}
+              <div className="max-h-[400px] overflow-y-auto pr-2 text-gray-700 leading-relaxed text-sm">
+                <p className="whitespace-pre-wrap">{jdText}</p>
+              </div>
+
+              {/* Keywords */}
+              {jdKeywords && jdKeywords.length > 0 && (
+                <div className="border-t pt-4">
+                  <p className="font-semibold text-lg text-[#053245] mb-3">
+                    Key Skills & Keywords:
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {jdKeywords.map((keyword, index) => (
+                      <span
+                        key={index}
+                        className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium"
+                      >
+                        {keyword}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* RIGHT: MATCHING RESUMES */}
+        <div className="bg-white rounded-3xl p-8 shadow-xl border border-gray-100">
+          <h2 className="text-2xl font-bold text-[#053245] mb-5">
+            👥 Matching Resumes
+          </h2>
+
+          {!matchingResumes.length ? (
+            <p className="text-gray-500 italic text-lg mt-6">
+              No resumes matched yet...
+            </p>
+          ) : (
+            <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+              {matchingResumes.map((resume, idx) => (
+                <div
+                  key={idx}
+                  className="p-4 border border-gray-200 rounded-xl hover:shadow-md transition bg-gradient-to-r from-white to-gray-50"
+                >
+                  {/* Header */}
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <h3 className="font-bold text-lg text-[#073C4D]">
+                        {resume.candidate_name || "Unknown"}
+                      </h3>
+                      <p className="text-sm text-gray-600">
+                        {resume.email || "No email"}
+                      </p>
+                    </div>
+                    <span
+                      className={`px-3 py-1 rounded-full text-sm font-bold ${
                         resume.match_percentage >= 70
                           ? "bg-green-100 text-green-700"
                           : resume.match_percentage >= 50
                           ? "bg-yellow-100 text-yellow-700"
                           : "bg-red-100 text-red-700"
-                      }`}>
-                        {resume.match_percentage}%
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
+                      }`}
+                    >
+                      {Math.round(resume.match_percentage)}% Match
+                    </span>
+                  </div>
+
+                  {/* Experience */}
+                  <p className="text-sm text-gray-700 mb-3">
+                    <strong>Experience:</strong> {resume.experience_years || 0}{" "}
+                    years
+                  </p>
+
+                  {/* Matched Skills */}
+                  <div className="mb-2">
+                    <p className="text-xs font-semibold text-green-700 mb-1">
+                      ✓ Matched Skills:
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {(resume.matched_skills || []).slice(0, 5).map((skill, i) => (
+                        <span
+                          key={i}
+                          className="px-2 py-1 bg-green-50 text-green-700 rounded text-xs"
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                      {(resume.matched_skills || []).length > 5 && (
+                        <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">
+                          +{(resume.matched_skills || []).length - 5} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Missing Skills */}
+                  {(resume.missing_skills || []).length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-red-700 mb-1">
+                        ✗ Missing Skills:
+                      </p>
                       <div className="flex flex-wrap gap-1">
-                        {resume.matched_skills.slice(0, 2).map((skill, i) => (
-                          <span key={i} className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">
-                            {skill}
-                          </span>
-                        ))}
-                        {resume.matched_skills.length > 2 && (
-                          <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">
-                            +{resume.matched_skills.length - 2}
+                        {(resume.missing_skills || [])
+                          .slice(0, 5)
+                          .map((skill, i) => (
+                            <span
+                              key={i}
+                              className="px-2 py-1 bg-red-50 text-red-700 rounded text-xs"
+                            >
+                              {skill}
+                            </span>
+                          ))}
+                        {(resume.missing_skills || []).length > 5 && (
+                          <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">
+                            +{(resume.missing_skills || []).length - 5} more
                           </span>
                         )}
                       </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {resume.missing_skills.slice(0, 2).map((skill, i) => (
-                          <span key={i} className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">
-                            {skill}
-                          </span>
-                        ))}
-                        {resume.missing_skills.length > 2 && (
-                          <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">
-                            +{resume.missing_skills.length - 2}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleViewResume(resume);
-                        }}
-                        className="px-4 py-1 bg-gradient-to-r from-[#053245] to-[#12A7B3] text-white rounded-lg text-sm font-medium hover:shadow-md transition"
-                      >
-                        View
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                  )}
+
+                  {/* View Button */}
+                  {/* ✅ FIXED: Corrected onClick to pass the resume object */}
+                  <button
+                    onClick={() => handleViewResume(resume)}
+                    disabled={loadingPdf}
+                    className="mt-4 w-full px-4 py-2 bg-gradient-to-r from-[#053245] to-[#12A7B3]
+                    text-white rounded-lg text-sm font-semibold hover:shadow-lg transition disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    <Eye size={18} />
+                    {loadingPdf ? "Loading..." : "View Resume"}
+                  </button>
+
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* MODAL (Kept in code, but unused for new tab view) */}
+      {showModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4"
+          onClick={() => {
+            setShowModal(false);
+            setSelectedResumeUrl("");
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center p-6 border-b">
+              <h2 className="text-2xl font-bold text-[#053245]">
+                {selectedResumeName}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowModal(false);
+                  setSelectedResumeUrl("");
+                }}
+                className="p-2 hover:bg-gray-100 rounded-full transition"
+              >
+                <X size={24} className="text-gray-600" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-hidden">
+              {selectedResumeUrl ? (
+                <iframe
+                  src={selectedResumeUrl}
+                  className="w-full h-full border-0"
+                  title={selectedResumeName}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-gray-500">Loading resume...</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
-
     </div>
   );
 };

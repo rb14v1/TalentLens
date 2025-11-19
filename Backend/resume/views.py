@@ -3,27 +3,38 @@ import io
 import os
 import re
 import traceback
+import json
 from typing import List, Dict
 
-import fitz  # PyMuPDF - add this import at the top
+import fitz  # PyMuPDF
 from rest_framework.views import APIView
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse, HttpResponseRedirect
 from django.views.decorators.csrf import csrf_exempt
+from django.shortcuts import redirect
 from botocore.exceptions import ClientError
 from urllib.parse import unquote
 import requests
+import hashlib
 
-# services (your existing modules)
+# services 
 from .services.s3_service import upload_resume_to_s3, list_pdfs, get_pdf_bytes, get_presigned_url, s3, BUCKET
 from .services.extract_data import extract_fields
 from .services.embedding_service import get_text_embedding
-from .services.qdrant_service import upsert_point, search_collection, get_all_points, delete_point
+from .services.qdrant_service import (
+    qdrant_client,
+    upsert_point,
+    search_collection,
+    get_all_points,
+    delete_point,
+    retrieve_point,
+    find_point_by_filename,
+    find_points_by_hashes
+)
 from .services.pdf_parser import extract_text_from_pdf_bytes, parse_resume as simple_parse_resume
 from .services.jd_keyword_service import extract_jd_keywords, match_resume_to_jd
-from .services.pdf_parser import extract_text_from_pdf_bytes
 
 
 
@@ -52,6 +63,37 @@ def _split_skills(lines: list) -> list:
 
     return result
 
+def _normalize_filename(fn: str) -> str:
+    """
+    Normalization used across upload/check/migration:
+      - strip whitespace
+      - collapse internal whitespace
+      - strip leading/trailing dots/spaces
+      - lowercase (for deterministic id)
+    Returns normalized lowercase string (suitable for uuid5).
+    """
+    if not fn:
+        return ""
+    s = fn.strip()
+    s = re.sub(r"\s+", " ", s)
+    s = s.strip(". ")
+    return s.lower()
+
+
+def _filename_to_point_id(fn: str) -> str:
+    """
+    Convert a filename (string) to a deterministic UUID string (UUID5).
+    Falls back to a random UUID if something goes wrong.
+    """
+    try:
+        normalized = _normalize_filename(fn)
+        if not normalized:
+            return str(uuid.uuid4())
+        # We need uuid to be imported, so let's make sure it is at the top
+        # (Your file already has 'import uuid' at the top, so this is fine)
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, normalized))
+    except Exception:
+        return str(uuid.uuid4())
 
 # -----------------------------
 # Home
@@ -63,125 +105,204 @@ def home(request):
 # -----------------------------
 # Upload endpoint (class based)
 # -----------------------------
+# ============================================================
+# ✅ Resume Upload (FIXED)
+# ============================================================
 class ResumeUploadView(APIView):
+    """
+    Handles multi-file multipart-form uploads from the frontend.
+    Duplicate detection and identity are based ONLY on the uploaded filename (normalized).
+    """
+
     def post(self, request, *args, **kwargs):
-        # ✅ FIX: Check for BOTH 'file' (new) and 'resume_file' (old)
-        resume_files = request.FILES.getlist('file')
+        # ✅ FIX: Changed to 'resume_file' to match your Upload.jsx
+        resume_files = request.FILES.getlist("resume_file")
         if not resume_files:
-            resume_files = request.FILES.getlist('resume_file')
-       
-        # Now, if it's *still* empty, return the error
-        if not resume_files:
-            return Response({'error': 'No resume files provided'}, status=status.HTTP_400_BAD_REQUEST)
- 
-        # MODIFICATION 2: Prepare lists for summary response
+            return Response({"error": "No resume files provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(resume_files) > 25:
+            return Response({"error": "You can upload a maximum of 25 resumes at a time."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         uploaded_results = []
+        skipped_duplicates = []
         errors = []
- 
-        # MODIFICATION 3: Loop through all files
+
+        # Use the globally defined qdrant client
+        qc = qdrant_client
+
         for resume_file in resume_files:
             try:
-                # --- Start of your original logic (now indented) ---
-                file_content_type = resume_file.content_type
-                file_content = resume_file.read()
-                s3_buffer = io.BytesIO(file_content)
+                # Use the original filename as the dedupe key
+                incoming_name = (resume_file.name or "").strip()
+                if not incoming_name:
+                    errors.append(f"{resume_file.name or 'unknown'}: missing filename")
+                    continue
+
+                readable_file_name = incoming_name  # keep case as-is for display
+                normalized_key = _normalize_filename(readable_file_name)
+
+                # === Filename-only duplicate check (using same normalization) ===
+                is_duplicate = False
+                try:
+                    if qc:
+                        # 1) check by readable_file_name payload variants
+                        variants = {
+                            readable_file_name,
+                            readable_file_name.lower(),
+                            f"resumes/{readable_file_name}",
+                            f"resumes/{readable_file_name.lower()}"
+                        }
+                        for v in variants:
+                            try:
+                                fil = models.Filter(must=[models.FieldCondition(
+                                    key="readable_file_name", match=models.MatchValue(value=v))])
+                                recs, _ = qc.scroll(
+                                    collection_name="resumes", scroll_filter=fil, limit=1)
+                                if recs and len(recs) > 0:
+                                    is_duplicate = True
+                                    break
+                            except Exception as e:
+                                # continue checking other variants
+                                print(f"⚠️ filename duplicate variant check failed for '{v}': {e}")
+
+                        # 2) fallback: check by deterministic UUID derived from normalized filename
+                        if (not is_duplicate) and normalized_key:
+                            try:
+                                probe_id = _filename_to_point_id(normalized_key)
+                                recs = qc.retrieve(
+                                    collection_name="resumes", ids=[probe_id], with_payload=True)
+                                if recs and len(recs) > 0:
+                                    is_duplicate = True
+                            except Exception:
+                                # not fatal; continue
+                                pass
+                except Exception as e:
+                    print(f"⚠️ filename duplicate check failed for {readable_file_name}: {e}")
+
+                if is_duplicate:
+                    skipped_duplicates.append(readable_file_name)
+                    print(
+                        f"⚠️ Duplicate filename detected (skipping upload for user-facing flow): {readable_file_name}")
+                    continue
+
+                # Read file bytes once (for S3 upload & extraction)
+                file_bytes = resume_file.read()
+                if not file_bytes:
+                    errors.append(f"{readable_file_name}: file empty or unreadable")
+                    continue
+                
+                # --- ✅ START OF FIX ---
+                # Calculate the file hash
+                file_hash = hashlib.sha256(file_bytes).hexdigest()
+                # --- ✅ END OF FIX ---
+
+                s3_buffer = io.BytesIO(file_bytes)
                 s3_buffer.name = resume_file.name
- 
-                extract_buffer = io.BytesIO(file_content)
+                extract_buffer = io.BytesIO(file_bytes)
                 extract_buffer.name = resume_file.name
- 
-                # Extract metadata
+
+                # Extract fields (you can still parse email/skills/etc.)
                 try:
                     extracted_data = extract_fields(extract_buffer)
                 except Exception as e:
-                    traceback.print_exc()
-                    # MODIFICATION: Change to raise error for the loop's catch block
-                    raise Exception(f'Text extraction failed: {e}')
- 
-                candidate_name = extracted_data.get("name", "Unknown")
- 
+                    print(f"⚠️ Text extraction failed for {readable_file_name}: {e}")
+                    errors.append(f"{readable_file_name}: extraction failed ({str(e)})")
+                    continue
+
+                candidate_name = extracted_data.get(
+                    "name") or extracted_data.get("candidate_name") or "Unknown"
+                candidate_email = (
+                    extracted_data.get("email") or "").strip().lower() or None
+
+                # Upload to S3 (uses imported service)
                 try:
-                    s3_url = upload_resume_to_s3(s3_buffer, file_content_type, candidate_name)
+                    s3_url = upload_resume_to_s3(
+                        s3_buffer, resume_file.content_type, candidate_name)
+                    print(f"✅ Uploaded to S3: {s3_url}")
                 except Exception as e:
-                    traceback.print_exc()
-                    raise Exception(f'S3 upload failed: {e}')
- 
-                # experience/cpd override from POST if provided
-                exp_years_post = request.POST.get("experience_years")
-                if exp_years_post and exp_years_post not in ["", "None", "null"]:
-                    try:
-                        experience_years = int(exp_years_post)
-                    except Exception:
-                        experience_years = extracted_data.get("experience_years", 0)
-                else:
-                    experience_years = extracted_data.get("experience_years", 0)
- 
-                cpd_level_post = request.POST.get("cpd_level")
-                if cpd_level_post and cpd_level_post not in ["", "None", "null"]:
-                    try:
-                        cpd_level = int(cpd_level_post)
-                    except (ValueError, TypeError):
-                        cpd_level = extracted_data.get("cpd_level", 1)
-                else:
-                    cpd_level = extracted_data.get("cpd_level", 1)
- 
-                # sanitize CPD level into accepted bounds
+                    print(f"❌ S3 upload failed for {readable_file_name}: {e}")
+                    errors.append(f"{readable_file_name}: s3 upload failed ({str(e)})")
+                    continue
+
+                # Determine object/file_name from s3 url
                 try:
-                    cpd_level = int(cpd_level)
+                    parsed_url = urlparse(s3_url)
+                    object_name = parsed_url.path.lstrip('/')
+                    stored_file_name = object_name.split('/')[-1] or readable_file_name
                 except Exception:
-                    cpd_level = 1
-                cpd_level = max(1, min(6, cpd_level))
- 
-                # create embedding (text should be present)
-                resume_text = extracted_data.get('resume_text', '') or ''
+                    stored_file_name = readable_file_name
+
+                # Embedding
+                resume_text = extracted_data.get(
+                    "resume_text", "") or extracted_data.get("text", "")
                 try:
                     embedding = get_text_embedding(resume_text)
                 except Exception as e:
-                    traceback.print_exc()
-                    raise Exception(f'Embedding generation failed: {e}')
- 
+                    print(
+                        f"⚠️ Embedding generation failed for {readable_file_name}: {e}")
+                    errors.append(f"{readable_file_name}: embedding failed ({str(e)})")
+                    continue
+
+                extracted_skills = extracted_data.get("skills", []) or []
+
                 payload = {
                     "s3_url": s3_url,
                     "candidate_name": candidate_name,
-                    "email": extracted_data.get("email"),
-                    "experience_years": experience_years,
-                    "cpd_level": cpd_level,
-                    "skills": extracted_data.get("skills", []),
-                    "year_joined": extracted_data.get("year_joined"),
+                    "email": candidate_email,
+                    
+                    # --- ✅ START OF FIX ---
+                    "file_hash": file_hash,  # <-- ADDED THE HASH TO THE PAYLOAD
+                    # --- ✅ END OF FIX ---
+                    
+                    "file_name": stored_file_name,
+                    "readable_file_name": readable_file_name,
+                    "experience_years": extracted_data.get("experience_years"),
+                    "cpd_level": extracted_data.get("cpd_level"),
+                    "skills": extracted_skills,
                     "resume_text": resume_text,
-                    "file_name": resume_file.name,
                 }
- 
-                point_id = str(uuid.uuid4())
+
+                # === Deterministic UUID id derived from normalized filename ===
+                try:
+                    point_id = _filename_to_point_id(normalized_key)
+                except Exception:
+                    point_id = str(uuid.uuid4())
+
+                # Perform upsert (idempotent)
                 try:
                     upsert_point(point_id, embedding, payload)
+                    uploaded_results.append(
+                        {"point_id": point_id, "file": readable_file_name})
+                    print(f"✅ Saved to Qdrant: {point_id} ({readable_file_name})")
                 except Exception as e:
-                    traceback.print_exc()
-                    raise Exception(f'Qdrant upsert failed: {e}')
- 
-                # MODIFICATION 4: Append success data
-                uploaded_results.append({
-                    'file': resume_file.name,
-                    'qdrant_id': point_id,
-                    'data': payload
-                })
-                # --- End of your original logic ---
-           
+                    print(f"❌ Qdrant upsert failed for {readable_file_name}: {e}")
+                    errors.append(
+                        f"{readable_file_name}: qdrant upsert failed ({str(e)})")
+                    continue
+
             except Exception as e:
-                # MODIFICATION 5: Catch per-file errors
-                print(f"❌ Error processing {resume_file.name}: {e}")
-                traceback.print_exc()
-                errors.append(f"{resume_file.name}: {str(e)}")
-                continue # Move to the next file
-       
-        # MODIFICATION 6: Return summary response
+                print(f"❌ Unexpected error processing {resume_file.name}: {e}")
+                errors.append(
+                    f"{resume_file.name}: unexpected error ({str(e)})")
+                continue
+
+        # Final responses
+        if not uploaded_results and skipped_duplicates:
+            return Response({
+                "message": "All provided resumes already exist (by filename).",
+                "duplicates": skipped_duplicates,
+                "uploaded_count": 0,
+                "errors": errors
+            }, status=status.HTTP_200_OK)
+
         return Response({
-            'message': f"Upload complete. Processed {len(uploaded_results)} files.",
-            'uploaded_count': len(uploaded_results),
-            'uploaded_data': uploaded_results,
-            'errors': errors
+            "message": "Upload complete!",
+            "uploaded_count": len(uploaded_results),
+            "skipped_duplicates": skipped_duplicates,
+            "uploaded_data": uploaded_results,
+            "errors": errors
         }, status=status.HTTP_201_CREATED if uploaded_results else status.HTTP_200_OK)
- 
  
 # -----------------------------
 # Search endpoint (kept largely as-is)
@@ -528,151 +649,86 @@ def filter_resumes(request):
 
 
 
+
 # ============================
 # ENHANCED: View resume with advanced highlighting
 # ============================
 @api_view(['GET'])
 def view_resume(request):
     """
-    View a resume PDF. Query params:
-      - file_name (required): filename (Denise.pdf) or full key (resumes/Denise.pdf)
-      - highlight (optional): 'cpd', 'experience', or arbitrary text to highlight.
-    Behavior:
-      - If `highlight` is provided: download, annotate, and return modified PDF bytes inline.
-      - If no `highlight`: generate a presigned S3 URL and redirect the client there (fast).
+    View a resume PDF.
+    Returns an HTML page that embeds the PDF from S3.
+    This allows window.open() to work correctly on the frontend.
     """
-    print("=== VIEW_RESUME CALLED ===")
+    print("=== VIEW_RESUME (HTML) CALLED ===")
     file_name = request.query_params.get('file_name', None)
-    highlight_field = request.query_params.get('highlight', None)
-
-    print(f"Requested file_name: {file_name}, highlight: {highlight_field}")
-
+    
     if not file_name:
         return Response({"detail": "file_name parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Normalize incoming file_name
-    file_name = unquote(str(file_name))
-    if not file_name.lower().endswith(".pdf"):
-        file_name = f"{file_name}.pdf"
+    # Clean filename
+    file_name_unquoted = unquote(str(file_name))
+    if not file_name_unquoted.lower().endswith(".pdf"):
+        file_name_unquoted = f"{file_name_unquoted}.pdf"
 
-    # candidate keys to try
-    candidate_keys = [file_name]
-    if not file_name.startswith("resumes/"):
-        candidate_keys.append(f"resumes/{file_name}")
+    # Find the file in S3
+    candidate_keys = [file_name_unquoted]
+    if not file_name_unquoted.startswith("resumes/"):
+        candidate_keys.append(f"resumes/{file_name_unquoted}")
 
-    # If still not found, attempt search by basename from S3 listing (case-insensitive)
     found_key = None
-    for key in candidate_keys:
-        try:
+    try:
+        for key in candidate_keys:
             s3.head_object(Bucket=BUCKET, Key=key)
             found_key = key
-            print(f"Found exact key in S3: {found_key}")
             break
-        except ClientError as e:
-            # not found — continue
-            pass
+    except ClientError:
+        pass 
 
+    # Fallback search
     if not found_key:
-        # Try scanning S3 list (this is slightly heavier, but handles paths and case variance)
         try:
-            print("Searching S3 listing for matching basename...")
-            all_keys = list_pdfs(prefix="resumes/")  # this returns only PDFs under 'resumes/'
-            basename = os.path.basename(file_name).lower()
+            all_keys = list_pdfs(prefix="resumes/")
+            basename = os.path.basename(file_name_unquoted).lower()
             for k in all_keys:
                 if os.path.basename(k).lower() == basename:
                     found_key = k
-                    print(f"Matched by listing: {found_key}")
                     break
-            # As a last attempt, see if exact non-prefixed file exists in bucket root
-            if not found_key:
-                # list objects at root prefix
-                root_keys = list_pdfs(prefix="")  # may return all pdfs
-                for k in root_keys:
-                    if os.path.basename(k).lower() == basename:
-                        found_key = k
-                        print(f"Matched by root listing: {found_key}")
-                        break
-        except Exception as e:
-            print("Error while searching S3 listing:", e)
+        except Exception:
+            pass
 
     if not found_key:
-        msg = f"Resume '{file_name}' not found in S3 (tried: {candidate_keys})."
-        print(msg)
-        return Response({"detail": msg}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "Resume not found in S3"}, status=status.HTTP_404_NOT_FOUND)
 
-    # If highlight requested, download + annotate and return PDF bytes
-    if highlight_field:
-        try:
-            print(f"Downloading {found_key} for highlighting...")
-            pdf_bytes = get_pdf_bytes(found_key)
-            pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
-
-            for page_num in range(pdf_document.page_count):
-                page = pdf_document[page_num]
-                page_text = page.get_text("text")
-
-                if highlight_field.lower() == "cpd":
-                    cpd_matches = re.finditer(r'CPD\s*Level:\s*\d+\b', page_text, re.IGNORECASE)
-                    for match in cpd_matches:
-                        cpd_text = match.group(0).strip()
-                        rects = page.search_for(cpd_text)
-                        for rect in rects:
-                            annot = page.add_highlight_annot(rect)
-                            annot.set_colors(stroke=[1, 1, 0])
-                            annot.update()
-
-                elif highlight_field.lower() == "experience":
-                    exp_matches = re.finditer(r'Experience:\s*\d+\s*years?', page_text, re.IGNORECASE)
-                    for match in exp_matches:
-                        exp_text = match.group(0).strip()
-                        rects = page.search_for(exp_text)
-                        if not rects:
-                            rects = page.search_for(exp_text.split('|')[0].strip())
-                        for rect in rects:
-                            annot = page.add_highlight_annot(rect)
-                            annot.set_colors(stroke=[1, 1, 0])
-                            annot.update()
-
-                else:
-                    rects = page.search_for(highlight_field)
-                    for rect in rects:
-                        annot = page.add_highlight_annot(rect)
-                        annot.set_colors(stroke=[1, 1, 0])
-                        annot.update()
-
-            pdf_bytes = pdf_document.write(garbage=4, deflate=True)
-            pdf_document.close()
-
-            response = HttpResponse(pdf_bytes, content_type='application/pdf')
-            response['Content-Disposition'] = f'inline; filename="{os.path.basename(found_key)}"'
-            print("Returning highlighted PDF inline.")
-            return response
-
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return Response({"detail": f"Error processing PDF for highlighting: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    # No highlighting requested -> return presigned URL redirect (fast)
     try:
-        presigned = get_presigned_url(found_key, expires_in=3600)
-        print(f"Returning presigned URL for {found_key}")
-        # Redirect client to S3 presigned URL so browser loads PDF directly from S3
-        return JsonResponse({"url": presigned})
+        # 1. Get secure S3 URL
+        presigned_s3_url = get_presigned_url(found_key, expires_in=3600)
+        
+        # 2. Return HTML wrapper (so the tab shows the filename)
+        clean_name = os.path.basename(found_key)
+        html_content = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>{clean_name}</title>
+            <style>
+                body, html {{ margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }}
+                embed {{ width: 100%; height: 100%; }}
+            </style>
+        </head>
+        <body>
+            <embed src="{presigned_s3_url}" type="application/pdf">
+        </body>
+        </html>
+        """
+        return HttpResponse(html_content, content_type='text/html')
+
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        # Fallback: stream file bytes if presigned generation fails
-        try:
-            pdf_bytes = get_pdf_bytes(found_key)
-            response = HttpResponse(pdf_bytes, content_type='application/pdf')
-            response['Content-Disposition'] = f'inline; filename="{os.path.basename(found_key)}"'
-            print("Presigned generation failed — returning bytes inline.")
-            return response
-        except Exception as e2:
-            import traceback
-            traceback.print_exc()
-            return Response({"detail": f"Unable to return resume: {str(e2)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        print(f"❌ Error in view_resume: {e}")
+        return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
 
 # -----------------------------
 # Proxy + Validate helpers
@@ -898,15 +954,6 @@ def extract_jd(request):
 def jd_match(request):
     """
     Match all resumes in Qdrant against a Job Description.
-    
-    Endpoint: POST /api/skill-analytics/jd_match/
-    Payload: multipart/form-data with 'jd_file'
-    Response: {
-        jd_keywords: [...],
-        matches: [{ candidate_name, email, match_percentage, ... }],
-        total_matches: N,
-        success: true
-    }
     """
     print("\n" + "="*60)
     print("=== JD_MATCH CALLED ===")
@@ -916,8 +963,6 @@ def jd_match(request):
     
     try:
         # ===== STEP 1: Get JD text =====
-        
-        # Check for file upload
         jd_file = request.FILES.get('jd_file')
         if jd_file:
             print("[1] Processing uploaded JD file...")
@@ -927,63 +972,50 @@ def jd_match(request):
                 print(f"✅ Extracted {len(jd_text)} chars from PDF")
             except Exception as e:
                 print(f"❌ PDF extraction failed: {e}")
-                return Response(
-                    {'error': f'PDF extraction failed: {str(e)}'},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
+                return Response({'error': f'PDF extraction failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-        # Check for JSON body
         elif request.data and 'jd_text' in request.data:
             print("[1] Processing raw JD text...")
             jd_text = request.data.get('jd_text', '')
         
         if not jd_text:
-            return Response(
-                {'error': 'No JD file or text provided'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({'error': 'No JD file or text provided'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # ===== STEP 2: Extract keywords from JD =====
+        # ===== STEP 2: Extract keywords =====
         print("[2] Extracting JD keywords...")
         try:
             jd_keywords = extract_jd_keywords(jd_text, top_k=25)
             print(f"✅ Found {len(jd_keywords)} keywords: {jd_keywords[:5]}...")
         except Exception as e:
             print(f"❌ Keyword extraction failed: {e}")
-            return Response(
-                {'error': f'Keyword extraction failed: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({'error': f'Keyword extraction failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-        # ===== STEP 3: Get all resumes from Qdrant =====
+        # ===== STEP 3: Get all resumes =====
         print("[3] Fetching all resumes from Qdrant...")
         try:
             all_resumes = get_all_points()
             print(f"✅ Found {len(all_resumes)} resumes in Qdrant")
         except Exception as e:
             print(f"❌ Failed to fetch resumes: {e}")
-            return Response(
-                {'error': f'Failed to fetch resumes: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({'error': f'Failed to fetch resumes: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-        # ===== STEP 4: Match each resume against JD =====
+        # ===== STEP 4: Match resumes =====
         print("[4] Matching resumes against JD...")
         matches = []
         
         for idx, resume in enumerate(all_resumes, 1):
             try:
                 payload = resume.payload or {}
-                
-                # Get resume skills
                 resume_skills = payload.get('skills', [])
                 if isinstance(resume_skills, str):
                     resume_skills = [resume_skills]
                 
-                # Match resume against JD
                 match_result = match_resume_to_jd(resume_skills, jd_keywords)
                 
-                # Build response data
+                # ✅ FIX: Extract 'file_name' from the payload
+                # This is the critical missing piece!
+                file_name = payload.get('file_name') or payload.get('readable_file_name') or payload.get('s3_url', '').split('/')[-1]
+                
                 candidate_data = {
                     'id': resume.id,
                     'candidate_name': payload.get('candidate_name', 'Unknown'),
@@ -997,23 +1029,19 @@ def jd_match(request):
                     'match_count': match_result['match_count'],
                     'total_required': match_result['total_required'],
                     's3_url': payload.get('s3_url', ''),
+                    'file_name': file_name, # <--- ADDED THIS FIELD
                 }
                 
                 matches.append(candidate_data)
-                print(f"  [{idx}] {candidate_data['candidate_name']}: {candidate_data['match_percentage']}% match")
             
             except Exception as e:
                 print(f"  ❌ Error processing resume {idx}: {e}")
                 continue
         
-        # Sort by match percentage (descending)
         matches.sort(key=lambda x: x['match_percentage'], reverse=True)
         
-        print("="*60)
-        print(f"✅ Matching complete: {len(matches)} resumes matched")
-        print("="*60 + "\n")
-        
         return Response({
+            'jd_text': jd_text, 
             'jd_keywords': jd_keywords,
             'matches': matches,
             'total_matches': len(matches),
@@ -1023,7 +1051,35 @@ def jd_match(request):
     except Exception as e:
         print(f"❌ CRITICAL ERROR in jd_match: {e}")
         traceback.print_exc()
-        return Response(
-            {'error': str(e), 'success': False},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return Response({'error': str(e), 'success': False}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)    
+
+
+# ============================================================
+# ✅ Check for Duplicate Resumes by Hash
+# ============================================================
+@csrf_exempt
+def check_hashes(request):
+    """
+    Check if a list of file hashes already exists in Qdrant.
+    Expects JSON: {"hashes": ["hash1", "hash2", ...]}
+    Returns: {"existing_hashes": ["hash1", ...]}
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "POST method required"}, status=405)
+    
+    try:
+        payload = json.loads(request.body.decode("utf-8") or "{}")
+        hashes_to_check = payload.get("hashes", [])
+        
+        if not isinstance(hashes_to_check, list) or not hashes_to_check:
+            return JsonResponse({"error": "Invalid payload, 'hashes' list is required."}, status=400)
+        
+        existing_hashes = find_points_by_hashes(hashes_to_check)
+        
+        return JsonResponse({"existing_hashes": list(existing_hashes)}, status=200)
+
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON payload"}, status=400)
+    except Exception as e:
+        print(f"❌ Hash check view error: {e}")
+        return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)

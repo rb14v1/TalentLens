@@ -85,6 +85,8 @@ function Retrieve() {
           matchScore: Number(r.score) || 0,
           matched_keywords: r.matched_keywords || [],
           s3_url: payload.s3_url || "",
+          // ✅ ADDED THIS: We need the real file_name for the API
+          file_name: payload.file_name || payload.readable_file_name || payload.s3_url?.split("/").pop(),
           raw_payload: payload,
         };
       });
@@ -107,6 +109,25 @@ function Retrieve() {
     setSelectedResume(null);
   };
 
+  const openFullView = (resume) => {
+  // robustly derive filename (keep same logic Manageresume uses)
+    const fileName =
+      resume.file_name ||
+      resume.readable_file_name ||
+      (resume.s3_url ? resume.s3_url.split("/").pop() : null) ||
+      resume.raw_payload?.file_name ||
+      resume.raw_payload?.readable_file_name;
+
+    if (!fileName) {
+      alert("Cannot open: Missing file name");
+      return;
+    }
+
+    const viewUrl = `${API_BASE_URL}/view_resume/?file_name=${encodeURIComponent(fileName)}`;
+  // open in new tab (same behaviour Manageresume uses)
+    window.open(viewUrl, "_blank", "noopener,noreferrer");
+  };
+
   const openModal = (resume) => setSelectedResume(resume);
   const closeModal = () => setSelectedResume(null);
 
@@ -122,7 +143,7 @@ function Retrieve() {
 
   return (
     <div className="min-h-screen flex bg-gradient-to-br from-[#F8FAFC] via-[#E9F1F4] to-[#E4EEF4] relative">
-      {/* Sidebar */}
+      {/* Sidebar (Unchanged) */}
       <aside className="w-72 bg-gradient-to-b from-[#0F394D] to-[#21B0BE] text-white flex flex-col justify-between shadow-lg">
         <div>
           <div className="p-6 border-b border-[#1CA9A3]/30 text-center text-xl font-semibold tracking-wide">
@@ -191,7 +212,7 @@ function Retrieve() {
           </nav>
         </div>
 
-        {/* Profile Section */}
+        {/* Profile Section (Unchanged) */}
         <div className="p-5 border-t border-[#1CA9A3]/30 bg-gradient-to-b from-[#0F394D]/90 to-[#21B0BE]/90 flex items-center gap-3">
           <img
             src="https://randomuser.me/api/portraits/women/45.jpg"
@@ -208,7 +229,7 @@ function Retrieve() {
         </div>
       </aside>
 
-      {/* Main Content */}
+      {/* Main Content (Unchanged) */}
       <main className="flex-1 p-10 relative overflow-y-auto">
         <button
           onClick={() => navigate("/")}
@@ -222,7 +243,7 @@ function Retrieve() {
         <div className="relative z-10 max-w-6xl mx-auto">
           <h1 className="text-3xl font-bold text-[#0F394D] mb-6">Retrieve</h1>
 
-          {/* Search Filters */}
+          {/* Search Filters (Unchanged) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <div>
               <label className="block text-gray-700 mb-1 font-medium">Search</label>
@@ -256,7 +277,7 @@ function Retrieve() {
             </div>
           </div>
 
-          {/* Buttons */}
+          {/* Buttons (Unchanged) */}
           <div className="flex gap-4 mb-8">
             <button
               onClick={handleSearch}
@@ -273,14 +294,14 @@ function Retrieve() {
             </button>
           </div>
 
-          {/* Error */}
+          {/* Error (Unchanged) */}
           {error && (
             <div className="mb-4 p-3 bg-red-50 text-red-700 border border-red-100 rounded">
               {error}
             </div>
           )}
 
-          {/* Resume Cards */}
+          {/* Resume Cards (Unchanged) */}
           {loading ? (
             <div className="text-center text-gray-500">Searching resumes…</div>
           ) : resumes.length > 0 ? (
@@ -337,6 +358,7 @@ function Retrieve() {
               <X size={22} />
             </button>
 
+            {/* Modal Header (Unchanged) */}
             <div className="flex items-center mb-4">
               <div className="bg-[#21B0BE]/20 p-2 rounded-full mr-3">
                 <User className="text-[#0F394D]" size={28} />
@@ -349,8 +371,8 @@ function Retrieve() {
               </div>
             </div>
 
+            {/* Modal Info (Unchanged) */}
             <div className="text-sm text-gray-700 space-y-1 mb-4">
-             
               <p>
                 <span className="font-medium">CPD Level:</span>{" "}
                 {selectedResume.cpdLevel}
@@ -365,7 +387,7 @@ function Retrieve() {
               </p>
             </div>
 
-            {/* Match Score */}
+            {/* Match Score (Unchanged) */}
             <div className="mb-5">
               <p className="font-medium text-gray-700 mb-2">Match Score:</p>
               <div className="w-full bg-gray-200 rounded-full h-3">
@@ -379,7 +401,7 @@ function Retrieve() {
               </p>
             </div>
 
-            {/* Experience */}
+            {/* Experience (Unchanged) */}
             <div className="mb-5">
               <p className="font-medium text-gray-700 mb-1">Experience:</p>
               <p className="text-gray-600 text-sm">
@@ -387,7 +409,7 @@ function Retrieve() {
               </p>
             </div>
 
-            {/* Skills */}
+            {/* Skills (Unchanged) */}
             <div className="mb-5">
               <p className="font-medium text-gray-700 mb-2">Skills:</p>
               <div className="flex flex-wrap gap-2">
@@ -404,7 +426,7 @@ function Retrieve() {
               </div>
             </div>
 
-            {/* Matched Keywords */}
+            {/* Matched Keywords (Unchanged) */}
             <div className="mb-6">
               <p className="font-medium text-gray-700 mb-2">Matched Keywords:</p>
               <div className="flex flex-wrap gap-2">
@@ -419,38 +441,28 @@ function Retrieve() {
               </div>
             </div>
 
-            {/* FOOTER BUTTONS */}
+            {/* ======================================= */}
+            {/* ✅ FOOTER BUTTONS (FIXED) */}
+            {/* ======================================= */}
             <div className="flex gap-3">
-              {/* DOWNLOAD */}
-              
-
-              {/* OPEN FULL VIEW PAGE — CORRECTED */}
               <button
-                onClick={() => {
-                  if (!selectedResume.s3_url) {
-                    alert("No file found");
-                    return;
-                  }
-                  const fileName = selectedResume.s3_url.split("/").pop();
-                  navigate(`/viewresume?file_name=${fileName}`);
-                }}
-                className="flex-1 w-full bg-[#21B0BE] text-white py-2 rounded-lg hover:bg-[#16939a] transition"
+                onClick={() => openFullView(selectedResume)}
+                className="flex-1 w-full bg-[#21B0BE] text-white py-2 rounded-lg hover:bg-[#16939a] transition text-center"
               >
                 Open Full View
               </button>
 
-              {/* NEW TAB VIEW */}
-              {selectedResume.s3_url && (
-                <a
-                  href={getPdfProxyUrl(selectedResume.s3_url)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-4 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition flex items-center gap-2"
-                >
-                  View in new tab
-                </a>
-              )}
+              {/* Optional: keep a 'Download' button that still uses proxy_resume (unchanged) */}
+              <button
+                onClick={() => handleDownload(selectedResume)}
+                className="w-1/3 px-4 py-2 bg-white border rounded-lg text-[#053245] hover:shadow"
+              >
+                Download
+              </button>
             </div>
+            {/* ======================================= */}
+            {/* END OF FIXES              */}
+            {/* ======================================= */}
           </div>
         </div>
       )}

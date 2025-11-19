@@ -1,32 +1,49 @@
 from django.urls import path
 from . import views
-from .views import filter_resumes, view_resume, proxy_resume, extract_jd, jd_match
-
+from .views import (
+    filter_resumes,
+    view_resume,
+    proxy_resume,
+    extract_jd,
+    jd_match,
+    check_hashes,  # ADD THIS IMPORT
+    fetch_all_resumes  # ADD THIS IMPORT (optional)
+)
+ 
 urlpatterns = [
-    # Home (optional)
-    path('', views.home),
-
-    # Upload / List / Search
+    # ========== HOME ==========
+    path('', views.home, name='home'),
+   
+    # ========== RESUME UPLOAD & MANAGEMENT ==========
     path('upload-resume/', views.ResumeUploadView.as_view(), name='upload_resume'),
+    path('check-hashes/', check_hashes, name='check_hashes'),  # ✅ Hash-based dedup check
     path('resumes/', views.ResumeListView.as_view(), name='resume_list'),
-    path('search/', views.ResumeSearchView.as_view(), name='resume_search'),
-
-    # Analytics
-    path("analytics/", views.analytics_overview, name="analytics"),
-    path("analytics/filter/", filter_resumes, name="analytics_filter"),
-
-    # Delete Resume
+    path('fetch-all-resumes/', fetch_all_resumes, name='fetch_all_resumes'),  # Optional: faster bulk fetch
     path('resumes/delete/<str:id>/', views.ResumeDeleteView.as_view(), name='resume_delete'),
-
-    # PDF Viewer API (IMPORTANT)
-    path('view_resume/', view_resume, name='view_resume'),
-
-    # Proxy PDF from S3
-    path('proxy_resume/', proxy_resume, name='proxy_resume'),
-
-    # Word validator
+   
+    # ========== RESUME SEARCH & VIEWING ==========
+    path('search/', views.ResumeSearchView.as_view(), name='resume_search'),
+    path('view_resume/', views.view_resume, name='view-resume'),  # View + highlight
+    path('proxy_resume/', proxy_resume, name='proxy_resume'),  # Proxy from S3
+   
+    # ========== ANALYTICS ==========
+    path('analytics/', views.analytics_overview, name='analytics'),
+    path('analytics/filter/', filter_resumes, name='analytics_filter'),
+   
+    # ========== JOB DESCRIPTION ==========
+    path('jd-match/', views.jd_match, name='jd-match'),
+    path('extract_jd/', extract_jd, name='extract_jd'),  # Extract JD keywords
+    path('jd_match/', jd_match, name='jd_match'),  # Match resumes to JD
+    # Optional: Add these if using JobDescription model
+    # path('jd/', views.job_description_list, name='job_description_list'),
+    # path('jd/<int:jd_id>/', views.job_description_detail, name='job_description_detail'),
+    # path('jd/draft/save/', views.save_jd_draft, name='save_jd_draft'),
+    # path('jd/<int:jd_id>/publish/', views.publish_jd, name='publish_jd'),
+    # path('jd/drafts/', views.get_drafts, name='get_drafts'),
+    # path('jd/published/', views.get_published_jds, name='get_published_jds'),
+   
+    # ========== UTILITIES ==========
     path('validate_word/', views.validate_word, name='validate_word'),
-
-    path('extract_jd/', extract_jd, name='extract_jd'),          
-    path('jd_match/', jd_match, name='jd_match'),
 ]
+ 
+ 
