@@ -22,23 +22,23 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../config";
-
+ 
 const Recruiterdashboard = () => {
   const navigate = useNavigate();
-
+ 
   const [cpdData, setCpdData] = useState([]);
   const [expData, setExpData] = useState([]);
   const [skillData, setSkillData] = useState([]);
   const [loading, setLoading] = useState(true);
-
+ 
   const COLORS = ["#0F394D", "#21B0BE", "#4DD0E1", "#0097A7", "#56C6C8", "#2B8F97"];
-
+ 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
         const res = await fetch(`${API_BASE_URL}/analytics/`);
         const data = await res.json();
-
+ 
         const cpdArr = Object.entries(data.cpd_levels || {}).map(
           ([level, count]) => ({
             name: `Level ${level}`,
@@ -46,21 +46,21 @@ const Recruiterdashboard = () => {
             raw: level,
           })
         );
-
+ 
         const expArr = Object.entries(data.experience || {}).map(
           ([range, count]) => ({
             name: range,
             value: count,
           })
         );
-
+ 
         const skillArr = Object.entries(data.skills || {}).map(
           ([skill, count]) => ({
             name: skill,
             value: count,
           })
         );
-
+ 
         setCpdData(cpdArr);
         setExpData(expArr);
         setSkillData(skillArr);
@@ -70,31 +70,31 @@ const Recruiterdashboard = () => {
         setLoading(false);
       }
     };
-
+ 
     fetchDashboardData();
   }, []);
-
+ 
   const hasData = cpdData.length > 0 || expData.length > 0 || skillData.length > 0;
-
+ 
   const handleCpdClick = (payload) => {
     const lvl = payload?.payload?.raw ?? payload?.name;
     if (!lvl) return;
     const lvlNum = String(lvl).replace("Level ", "");
     navigate(`/analytics-details?cpd_level=${encodeURIComponent(lvlNum)}`);
   };
-
+ 
   const handleExpClick = (payload) => {
     const range = payload?.payload?.name ?? payload?.name;
     if (!range) return;
     navigate(`/analytics-details?experience=${encodeURIComponent(range)}`);
   };
-
+ 
   const handleSkillClick = (payload) => {
     const name = payload?.payload?.name ?? payload?.name;
     if (!name) return;
     navigate(`/analytics-details?skill=${encodeURIComponent(name)}`);
   };
-
+ 
   return (
     <div className="min-h-screen flex bg-[#F5F5F5]">
       {/* ===== Sidebar ===== */}
@@ -103,7 +103,7 @@ const Recruiterdashboard = () => {
           <h2 className="text-2xl font-semibold tracking-wide">Recruiter Dashboard</h2>
           <p className="text-sm text-teal-100 mt-1">Overview of recruitment analytics</p>
         </div>
-
+ 
         <nav className="flex-1 p-5 space-y-3">
           <button
             className="flex items-center gap-3 p-2 w-full rounded-lg bg-white/10 hover:bg-white/20 transition-all"
@@ -111,28 +111,28 @@ const Recruiterdashboard = () => {
           >
             <LayoutDashboard size={18} /> Dashboard
           </button>
-
+ 
           <button
             className="flex items-center gap-3 p-2 w-full rounded-lg hover:bg-white/20 transition-all"
             onClick={() => navigate("/upload")}
           >
             <Upload size={18} /> Upload
           </button>
-
+ 
           <button
             className="flex items-center gap-3 p-2 w-full rounded-lg hover:bg-white/20 transition-all"
             onClick={() => navigate("/retrieve")}
           >
             <Search size={18} /> Retrieve
           </button>
-
+ 
           <button
             className="flex items-center gap-3 p-2 w-full rounded-lg hover:bg-white/20 transition-all"
             onClick={() => navigate("/manageresume")}
           >
             <FileText size={18} /> Manage Resume
           </button>
-
+ 
           <button
             className="flex items-center gap-3 p-2 w-full rounded-lg hover:bg-white/20 transition-all"
             onClick={() => navigate("/settings")}
@@ -140,7 +140,7 @@ const Recruiterdashboard = () => {
             <Settings size={18} /> Settings
           </button>
         </nav>
-
+ 
         <div className="p-5 border-t border-[#1CA9A3]/30 flex items-center gap-3">
           <img
             src="https://randomuser.me/api/portraits/women/68.jpg"
@@ -152,28 +152,28 @@ const Recruiterdashboard = () => {
             <p className="text-sm text-teal-100">Recruiter</p>
           </div>
         </div>
-
+ 
         <div className="p-5 border-t border-[#1CA9A3]/30">
           <button className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 py-2 w-full rounded-lg transition-all">
             <LogOut size={18} /> Logout
           </button>
         </div>
       </aside>
-
+ 
       {/* ===== Main Content ===== */}
       <main className="flex-1 p-10 overflow-y-auto">
-
+ 
         {/* === Title + Back Button in SAME ROW === */}
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold text-[#0D1F29]">Analytics Overview</h1>
-
+ 
           <button
             onClick={() => navigate("/")}
             className="
-              px-6 py-2 
+              px-6 py-2
               text-white font-medium
               bg-gradient-to-r from-[#0F394D] to-[#21B0BE]
-              rounded-full shadow-md 
+              rounded-full shadow-md
               hover:opacity-90
               transition-all duration-300
             "
@@ -181,7 +181,7 @@ const Recruiterdashboard = () => {
             Back
           </button>
         </div>
-
+ 
         {loading ? (
           <div className="text-center text-gray-500 mt-20 text-lg">Loading dashboard data...</div>
         ) : !hasData ? (
@@ -191,13 +191,17 @@ const Recruiterdashboard = () => {
             Please ensure backend is returning analytics.
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
+ 
+          /* ******************************************************
+             🔥 FIXED: Only 2 cards per row — third wraps below
+             ****************************************************** */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 gap-10">
             {/* CPD Level */}
             <div className="bg-white rounded-3xl shadow-lg border border-gray-200 p-6">
               <h2 className="text-xl font-semibold text-[#0D1F29] mb-4">
                 CPD Level Distribution
               </h2>
-              <ResponsiveContainer width="100%" height={250}>
+              <ResponsiveContainer width="100%" height={350}>
                 <PieChart>
                   <Pie
                     data={cpdData}
@@ -218,13 +222,13 @@ const Recruiterdashboard = () => {
                 </PieChart>
               </ResponsiveContainer>
             </div>
-
+ 
             {/* Experience */}
             <div className="bg-white rounded-3xl shadow-lg border border-gray-200 p-6">
               <h2 className="text-xl font-semibold text-[#0D1F29] mb-4">
                 Experience Distribution
               </h2>
-              <ResponsiveContainer width="100%" height={250}>
+              <ResponsiveContainer width="100%" height={350}>
                 <BarChart data={expData}>
                   <XAxis dataKey="name" />
                   <YAxis />
@@ -239,13 +243,13 @@ const Recruiterdashboard = () => {
                 </BarChart>
               </ResponsiveContainer>
             </div>
-
+ 
             {/* Skill */}
             <div className="bg-white rounded-3xl shadow-lg border border-gray-200 p-6">
               <h2 className="text-xl font-semibold text-[#0D1F29] mb-4">
                 Top Skill Distribution
               </h2>
-              <ResponsiveContainer width="100%" height={250}>
+              <ResponsiveContainer width="100%" height={350}>
                 <BarChart data={skillData}>
                   <XAxis dataKey="name" />
                   <YAxis />
@@ -260,11 +264,14 @@ const Recruiterdashboard = () => {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+ 
           </div>
         )}
       </main>
     </div>
   );
 };
-
+ 
 export default Recruiterdashboard;
+ 
+ 

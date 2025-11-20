@@ -12,6 +12,8 @@ import Managerdashboard from "./pages/Managerdashboard";
 import Managerpage from "./pages/Managerpage";
 import Description from "./pages/Description";
 import Preview from "./pages/Preview";
+import Register from "./pages/register";
+import Login from "./pages/login";
 
 function App() {
   // --- 2. Create the shared state here ---
@@ -29,6 +31,8 @@ function App() {
       <Route path="/jobdescriptionmatch" element={<JobDescriptionMatch />} />
       <Route path="/managerdashboard" element={<Managerdashboard />} />
       <Route path="/managerpage" element={<Managerpage />} />
+      <Route path="/register" element={<Register />} />
+      <Route path="/login" element={<Login />} />
       
       {/* --- 3. Pass the state and function as props --- */}
       <Route

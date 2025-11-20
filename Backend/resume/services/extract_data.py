@@ -1,238 +1,152 @@
+# extract_data.py
 import fitz
 from docx import Document
 import re
-from typing import Dict
-import google.generativeai as genai
+from typing import Dict, List, Tuple
 import os
-
-# -----------------------------
-# Gemini setup
-# -----------------------------
-API_KEY = (
-    os.getenv("GENAI_API_KEY")
-    or os.getenv("GOOGLE_API_KEY")
-    or os.getenv("GEMINI_KEY")
-)
-
-if API_KEY:
-    genai.configure(api_key=API_KEY)
-    model = genai.GenerativeModel("models/gemini-2.5-flash")
-else:
-    model = None
-
-
+import json
+import io
+import traceback
+ 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SKILLS_JSON_PATH = os.path.join(BASE_DIR, "skills_dictionary.json")
+ 
 # -----------------------------------------------------------
-# Stronger text extraction with fallback
+# Load skills dictionary
 # -----------------------------------------------------------
+try:
+    with open(SKILLS_JSON_PATH, "r", encoding="utf-8") as f:
+        RAW_SKILLS = json.load(f)
+ 
+    def _normalize_skill_key(s: str) -> str:
+        t = s.lower().strip()
+        t = t.replace("_", " ").replace("/", " ").replace("\\", " ")
+        return " ".join(t.split())
+ 
+    SKILL_CANONICAL = {}
+    for raw in RAW_SKILLS:
+        norm = _normalize_skill_key(raw)
+        if norm and norm not in SKILL_CANONICAL:
+            SKILL_CANONICAL[norm] = raw
+ 
+    SKILL_SET = set(SKILL_CANONICAL.keys())
+    SORTED_SKILLS = sorted(SKILL_SET, key=lambda x: -len(x))
+ 
+except Exception as e:
+    print("❌ Could not load skills dictionary:", e)
+    SKILL_CANONICAL = {}
+    SKILL_SET = set()
+    SORTED_SKILLS = []
+ 
+# -----------------------------------------------------------
+# Import SkillNER — FINAL FIX
+# -----------------------------------------------------------
+try:
+    from resume.services.skillner_service import extract_skills as real_extract_skills
+    print("✔ SkillNER imported successfully")
+except Exception as e:
+    print("❌ SkillNER import FAILED:", e)
+    real_extract_skills = None
+ 
+ 
+# -----------------------------
+# RESUME TEXT EXTRACTION
+# -----------------------------
 def extract_file_content(file_obj) -> str:
-    file_type = file_obj.name.split(".")[-1].lower()
-    file_obj.seek(0)
-
-    # ---------- PDF Extraction ----------
-    if file_type == "pdf":
-        try:
-            doc = fitz.open(stream=file_obj.read(), filetype="pdf")
-            full_text = ""
-
-            for page in doc:
-                # Strongest text extraction available
-                text = page.get_text("text")
-                if text.strip():
-                    full_text += text + "\n"
-
-            if full_text.strip():
-                return full_text
-
-        except Exception as e:
-            print("⚠️ PDF extract failed:", e)
-
-        # ---------- Optional OCR fallback ----------
-        try:
-            import pytesseract
-            from PIL import Image
-
-            doc = fitz.open(stream=file_obj.read(), filetype="pdf")
-            ocr_text = ""
-
-            for page in doc:
-                pix = page.get_pixmap()
-                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                ocr_text += pytesseract.image_to_string(img)
-
-            return ocr_text
-
-        except Exception as e:
-            print("⚠️ OCR fallback failed:", e)
-            return ""
-
-    # ---------- DOCX Extraction ----------
-    elif file_type == "docx":
-        try:
-            doc = Document(file_obj)
-            return "\n".join(p.text for p in doc.paragraphs)
-        except Exception:
-            return ""
-
-    # ---------- TXT or fallback ----------
-    else:
-        try:
-            file_obj.seek(0)
-            return file_obj.read().decode("utf-8", errors="ignore")
-        except Exception:
-            return ""
-
-
-# -----------------------------------------------------------
-# Gemini skill extraction
-# -----------------------------------------------------------
-def extract_skills_with_gemini(resume_text: str) -> list:
-    if not resume_text:
-        return []
-
-    if model is None:
-        tokens = re.findall(r"[A-Za-z0-9\+\#\-\+\.]{2,}", resume_text)
-        return list(set(tokens))[:20]
-
     try:
-        prompt = f"""
-        Extract only technical skills from this resume text.
-        Include: languages, frameworks, cloud, databases, devops, tools.
-        Exclude: soft skills, company names, job titles, education.
-
-        Resume:
-        {resume_text[:2500]}
-
-        Output ONLY comma-separated skills. No explanations.
-        """
-        response = model.generate_content(prompt)
-        skills_text = response.text.strip()
-
-        skills = [s.strip() for s in skills_text.split(",") if s.strip()]
-        return skills[:40] if skills else []
-
-    except Exception as e:
-        print("⚠️ Gemini skill extraction failed:", e)
-        return []
-
-
-# -----------------------------------------------------------
-# CPD Level Calculation
-# -----------------------------------------------------------
-def calculate_cpd_level(years: int) -> int:
-    if years <= 1:
+        file_obj.seek(0)
+    except:
+        pass
+ 
+    try:
+        content = file_obj.read()
+    except:
+        content = file_obj
+ 
+    filename = getattr(file_obj, "name", "")
+    ext = filename.lower().split(".")[-1] if "." in filename else ""
+ 
+    if ext == "pdf" or content[:4] == b"%PDF":
+        try:
+            doc = fitz.open(stream=content, filetype="pdf")
+            pages = [page.get_text() for page in doc]
+            return "\n".join(pages)
+        except:
+            return ""
+ 
+    if ext == "docx":
+        try:
+            doc = Document(io.BytesIO(content))
+            return "\n".join([p.text for p in doc.paragraphs])
+        except:
+            return ""
+ 
+    try:
+        return content.decode("utf-8", errors="ignore")
+    except:
+        return ""
+ 
+ 
+# -----------------------------
+# CPD level
+# -----------------------------
+def calculate_cpd_level(years):
+    try:
+        y = int(years)
+    except:
         return 1
-    elif years <= 3:
-        return 2
-    elif years <= 5:
-        return 3
-    elif years <= 8:
-        return 4
-    elif years <= 12:
-        return 5
+ 
+    if y <= 1: return 1
+    if y <= 3: return 2
+    if y <= 5: return 3
+    if y <= 8: return 4
+    if y <= 12: return 5
     return 6
-
-
+ 
+ 
+EMAIL_PATTERN = re.compile(r"[\w\.-]+@[\w\.-]+")
+PHONE_PATTERN = re.compile(r"\+?\d[\d\s\-]{7,14}")
+ 
+ 
 # -----------------------------------------------------------
-# Field Extraction Master Function
+# MASTER FIELD EXTRACTION
 # -----------------------------------------------------------
 def extract_fields(file_obj) -> Dict:
-    text = extract_file_content(file_obj)
-
-    # ---------------------------------
-    # NAME extraction (improved)
-    # ---------------------------------
-    candidate_name = None
-
-    name_patterns = [
-        r"Name:\s*([A-Za-z][A-Za-z\s]+?)(?=\s+(?:Email|Phone|Contact|$))",
-        r"Candidate:\s*([A-Za-z][A-Za-z\s]+?)(?=\s+(?:Email|Phone|Contact|$))",
-        r"Full Name:\s*([A-Za-z][A-Za-z\s]+)",
-        r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)",  # First line full name
-    ]
-
-    for pattern in name_patterns:
-        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
-        if match:
-            extracted = match.group(1).strip()
-            extracted = re.sub(r"\S+@\S+", "", extracted)
-            extracted = " ".join(extracted.split())
-
-            if len(extracted.split()) >= 2 and len(extracted) < 80:
-                candidate_name = extracted
-                break
-
-    # Backup name using email line
-    if not candidate_name:
-        email_match = re.search(r"[\w\.-]+@[\w\.-]+", text)
-        if email_match:
-            lines = text.split("\n")
-            idx = next(
-                (i for i, line in enumerate(lines) if email_match.group(0) in line),
-                0,
-            )
-            for line in lines[max(0, idx - 3) : idx + 1]:
-                nm = re.search(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)", line)
-                if nm:
-                    candidate_name = nm.group(1).strip()
-                    break
-
-    if not candidate_name:
-        candidate_name = "Unknown"
-
-    # ---------------------------------
-    # EMAIL extraction
-    # ---------------------------------
-    email_match = re.search(r"[\w\.-]+@[\w\.-]+", text)
-    email = email_match.group(0).strip().lower() if email_match else ""
-
-    # ---------------------------------
-    # EXPERIENCE extraction
-    # ---------------------------------
+    text = extract_file_content(file_obj) or ""
+ 
+    # NAME
+    candidate_name = "Unknown"
+    name_match = re.search(r"^([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)", text, re.MULTILINE)
+    if name_match:
+        candidate_name = name_match.group(1)
+ 
+    # EMAIL
+    email_match = EMAIL_PATTERN.search(text)
+    email = email_match.group(0).lower() if email_match else ""
+ 
+    # EXPERIENCE
     experience_years = 0
-    exp_match = re.search(r"(\d{1,2})\s*(?:years?|yrs?)", text, re.IGNORECASE)
-    if exp_match:
-        try:
-            experience_years = int(exp_match.group(1))
-        except:
-            experience_years = 0
-
-    # ---------------------------------
-    # CPD Level
-    # ---------------------------------
-    cpd_level = None
-    cpd_patterns = [
-        r"CPD\s*Level[:\s]+(\d)",
-        r"CPD[:\s]+(\d)",
-        r"Level[:\s]+(\d)\s+CPD",
-    ]
-
-    for pattern in cpd_patterns:
-        m = re.search(pattern, text, re.IGNORECASE)
-        if m:
-            try:
-                extracted = int(m.group(1))
-                if 1 <= extracted <= 6:
-                    cpd_level = extracted
-                    break
-            except:
-                pass
-
-    if cpd_level is None:
-        cpd_level = calculate_cpd_level(experience_years)
-
-    # ---------------------------------
-    # SKILLS extraction
-    # ---------------------------------
-    skills = extract_skills_with_gemini(text)
-
-    # ---------------------------------
-    # FINAL RETURN STRUCTURE
-    # ---------------------------------
+    exp = re.search(r"(\d+)\s*years?", text, re.IGNORECASE)
+    if exp:
+        try: experience_years = int(exp.group(1))
+        except: pass
+ 
+    # CPD
+    cpd_level = calculate_cpd_level(experience_years)
+ 
+    # SKILLS — ONLY SkillNER
+    if real_extract_skills:
+        skills = real_extract_skills(text)
+    else:
+        skills = []
+ 
     return {
         "candidate_name": candidate_name,
         "email": email,
         "experience_years": experience_years,
         "cpd_level": cpd_level,
-        "skills": skills,
-        "resume_text": text or "",
+        "skills": skills,  # <- CLEAN SKILLNER ONLY
+        "resume_text": text
     }
+ 
+ 

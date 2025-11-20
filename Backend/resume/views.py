@@ -15,7 +15,7 @@ from django.http import HttpResponse, JsonResponse, HttpResponseRedirect
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import redirect
 from botocore.exceptions import ClientError
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 import requests
 import hashlib
 
@@ -430,6 +430,36 @@ class ResumeSearchView(APIView):
 class ResumeListView(APIView):
     def get(self, request):
         try:
+            source = request.query_params.get("source", "qdrant").lower()
+            if source == "s3":
+                # List objects from S3 (uses list_pdfs helper which returns keys)
+                formatted_results = []
+                try:
+                    all_keys = list_pdfs(prefix="resumes/")  # adjust prefix if needed
+                    for key in all_keys:
+                        if not key:
+                            continue
+                        file_name = os.path.basename(key)
+                        # deterministic id so frontend keys remain stable
+                        id_hash = hashlib.sha1(key.encode("utf-8")).hexdigest()
+                        formatted_results.append({
+                            "id": id_hash,
+                            "candidate_name": os.path.splitext(file_name)[0].replace("_", " ").title(),
+                            "email": None,
+                            "experience_years": None,
+                            "cpd_level": None,
+                            "skills": [],
+                            "s3_url": f"s3://{BUCKET}/{key}",
+                            "file_name": file_name,
+                            "readable_file_name": file_name,
+                            "resume_text": None
+                        })
+                    return Response({"results": formatted_results}, status=status.HTTP_200_OK)
+                except Exception as e:
+                    traceback.print_exc()
+                    return Response({"error": f"Failed to list S3 resumes: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            # default: existing Qdrant-driven listing (unchanged)
             qdrant_records = get_all_points()
             formatted_results = []
             for record in qdrant_records:
@@ -442,8 +472,10 @@ class ResumeListView(APIView):
                     'cpd_level': payload.get('cpd_level'),
                     'skills': payload.get('skills', []),
                     's3_url': payload.get('s3_url'),
+                    'file_name': payload.get('file_name'),
                     'resume_text': payload.get('resume_text')
                 })
+
             return Response({"results": formatted_results}, status=status.HTTP_200_OK)
         except Exception as e:
             traceback.print_exc()
@@ -818,18 +850,111 @@ class ResumeDetailView(APIView):
 # Delete resume (by qdrant id)
 # -----------------------------
 class ResumeDeleteView(APIView):
-    # ✅ FIX: Changed 'pk' to 'id' to match the URL
+    # delete by qdrant id (url: /resumes/delete/<id>/)
     def delete(self, request, id):
         if not id:
             return Response({'error': 'No resume ID provided'}, status=status.HTTP_400_BAD_REQUEST)
- 
+
+        s3_deleted = False
+        s3_delete_errors = []
+        tried_keys = []
+
         try:
-            # ✅ FIX: Use the 'id' variable
+            # 1) Try to fetch the point (prefer service helper if available)
+            record = None
+            try:
+                # retrieve_point should return an object or dict with 'payload'
+                record = retrieve_point(id)
+            except Exception:
+                # fallback to scanning all points (slower) - _get_qdrant_record_by_id returns object or None
+                record = _get_qdrant_record_by_id(id)
+
+            payload = {}
+            if record:
+                # support both dict-like and object with .payload
+                payload = getattr(record, "payload", None) or (record if isinstance(record, dict) else {}) or {}
+
+            # 2) derive S3 key candidates from payload
+            s3_url = payload.get("s3_url") if payload else None
+            file_name = payload.get("file_name") if payload else None
+            readable_name = payload.get("readable_file_name") if payload else None
+
+            key_candidates = []
+
+            # If s3_url is an s3:// or https URL, try to parse the path component
+            if s3_url:
+                try:
+                    if s3_url.startswith("s3://"):
+                        # s3://bucket/path/to/object.pdf
+                        # ensure it refers to our BUCKET
+                        without_scheme = s3_url[len("s3://"):]
+                        if without_scheme.startswith(f"{BUCKET}/"):
+                            key_candidates.append(without_scheme.split("/", 1)[1])
+                        else:
+                            # if bucket missing in url, still attempt to take the path portion
+                            parts = without_scheme.split("/", 1)
+                            if len(parts) > 1:
+                                key_candidates.append(parts[1])
+                    else:
+                        # https or presigned URL — parse path
+                        parsed = urlparse(s3_url)
+                        if parsed.path:
+                            key_candidates.append(parsed.path.lstrip("/"))
+                except Exception as e:
+                    s3_delete_errors.append(f"Failed to parse s3_url: {str(e)}")
+
+            # Try common filename-based keys
+            if file_name:
+                key_candidates.append(file_name)
+                key_candidates.append(f"resumes/{file_name}")
+
+            if readable_name:
+                key_candidates.append(readable_name)
+                key_candidates.append(f"resumes/{readable_name}")
+
+            # Normalize and deduplicate candidates
+            normalized = []
+            for k in key_candidates:
+                if not k:
+                    continue
+                k_clean = k.lstrip("/")
+                if k_clean not in normalized:
+                    normalized.append(k_clean)
+            key_candidates = normalized
+
+            # 3) Try to locate and delete the first existing object in S3
+            for key in key_candidates:
+                tried_keys.append(key)
+                try:
+                    # verify object exists
+                    s3.head_object(Bucket=BUCKET, Key=key)
+                    # if exists -> delete
+                    s3.delete_object(Bucket=BUCKET, Key=key)
+                    s3_deleted = True
+                    break
+                except ClientError as ce:
+                    # object not found or permission issue -> continue to next candidate
+                    s3_delete_errors.append(f"Head/Delete for '{key}' failed: {str(ce)}")
+                    continue
+                except Exception as e:
+                    s3_delete_errors.append(f"Error deleting '{key}': {str(e)}")
+                    continue
+
+            # 4) Delete from Qdrant (always attempt even if S3 delete failed)
             delete_point(id)
-            return Response({"message": f"Resume with id {id} deleted successfully."}, status=status.HTTP_200_OK)
-        except Exception as e:
-            traceback.print_exc()
-            return Response({"error": f"Failed to delete resume: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            # 5) Build response summary
+            resp = {
+                "message": f"Resume with id {id} deleted from Qdrant.",
+                "qdrant_deleted": True,
+                "s3_deleted": s3_deleted,
+                "s3_tried_keys": tried_keys,
+            }
+            if s3_delete_errors:
+                resp["s3_errors"] = s3_delete_errors
+
+            return Response(resp, status=status.HTTP_200_OK)
+
         except Exception as e:
             traceback.print_exc()
             return Response({"error": f"Failed to delete resume: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -1083,3 +1208,66 @@ def check_hashes(request):
     except Exception as e:
         print(f"❌ Hash check view error: {e}")
         return JsonResponse({"error": f"An error occurred: {str(e)}"}, status=500)
+    
+
+# ====================================================================
+# USER AUTH: Register + Login (Using AppUser)
+# ====================================================================
+from .models import AppUser
+import json
+from django.views.decorators.csrf import csrf_exempt
+ 
+@csrf_exempt
+def register_user(request):
+    """Register a new user (Manager, Recruiter, Hiring Manager)."""
+    if request.method != "POST":
+        return JsonResponse({"error": "POST request required"}, status=400)
+ 
+    try:
+        data = json.loads(request.body)
+ 
+        name = data.get("name")
+        email = data.get("email")
+        password = data.get("password")
+        role = data.get("role")
+ 
+        if AppUser.objects.filter(email=email).exists():
+            return JsonResponse({"error": "Email already exists"}, status=400)
+ 
+        user = AppUser(name=name, email=email, password=password, role=role)
+        user.save()
+ 
+        return JsonResponse({"message": "Registered successfully"}, status=201)
+ 
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+ 
+ 
+ 
+@csrf_exempt
+def login_user(request):
+    """Login user and return their role for redirect."""
+    if request.method != "POST":
+        return JsonResponse({"error": "POST request required"}, status=400)
+ 
+    try:
+        data = json.loads(request.body)
+        email = data.get("email")
+        password = data.get("password")
+ 
+        user = AppUser.objects.filter(email=email).first()
+ 
+        if user is None:
+            return JsonResponse({"error": "Invalid email"}, status=400)
+ 
+        if not user.check_password(password):
+            return JsonResponse({"error": "Invalid password"}, status=400)
+ 
+        # SUCCESS — send role to frontend
+        return JsonResponse({"role": user.role, "message": "Login successful"})
+ 
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+ 
+ 
+ 

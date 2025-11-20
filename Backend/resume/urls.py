@@ -44,6 +44,9 @@ urlpatterns = [
    
     # ========== UTILITIES ==========
     path('validate_word/', views.validate_word, name='validate_word'),
+    path("register/", views.register_user),
+    path("login/", views.login_user),
+ 
 ]
  
  

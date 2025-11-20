@@ -35,20 +35,29 @@ const Manageresume = () => {
   const fetchResumes = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/resumes/`);
+      // Request S3 listing (falls back to qdrant if S3 listing fails)
+      const res = await fetch(`${API_BASE_URL}/resumes/?source=s3`);
+      if (!res.ok) throw new Error("S3 list failed");
       const data = await res.json();
-      const list =
-        data.results ??
-        data.data ??
-        data.items ??
-        (Array.isArray(data) ? data : []);
+      const list = data.results ?? data.data ?? (Array.isArray(data) ? data : []);
       setResumes(list);
     } catch (err) {
-      console.error("Error fetching resumes:", err);
+      console.error("Error fetching resumes (S3):", err);
+      // Fallback to Qdrant listing
+      try {
+        const res2 = await fetch(`${API_BASE_URL}/resumes/`);
+        const d2 = await res2.json();
+        const list2 = d2.results ?? d2.data ?? (Array.isArray(d2) ? d2 : []);
+        setResumes(list2);
+      } catch (e2) {
+        console.error("Fallback Qdrant listing also failed:", e2);
+        setResumes([]);
+      }
     } finally {
       setIsLoading(false);
     }
   };
+
 
   useEffect(() => {
     fetchResumes();
@@ -200,45 +209,54 @@ const Manageresume = () => {
             <p className="text-center text-gray-500 mt-20">No resumes found.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {resumes.map((r) => (
-                <div
-                  key={r.id}
-                  className="bg-white rounded-2xl p-6 shadow hover:shadow-xl transition"
-                >
-                  <div className="flex gap-3 mb-3">
-                    <FileText size={28} className="text-[#0F394D]" />
-                    <div>
-                      <h3 className="text-lg font-semibold">
-                        {r.candidate_name || r.name}
-                      </h3>
-                      <p className="text-sm text-gray-600">{r.email}</p>
+              {resumes.map((r) => {
+                // defensive fallbacks so S3-only items show nicely
+                  const displayName =
+                    r.candidate_name || r.name || r.readable_file_name || r.file_name || "Unknown";
+                  const fileName =
+                    r.file_name || r.readable_file_name || (r.s3_url ? r.s3_url.split("/").pop() : "");
+
+                  return (
+                    <div
+                      key={r.id}
+                      className="bg-white rounded-2xl p-6 shadow hover:shadow-xl transition"
+                    >
+                      <div className="flex gap-3 mb-3">
+                        <FileText size={28} className="text-[#0F394D]" />
+                        <div>
+                          <h3 className="text-lg font-semibold">
+                            {displayName}
+                          </h3>
+                        <p className="text-sm text-gray-600">{r.email || " "}</p>
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-700">
+                      <b>Experience:</b> {r.experience_years ?? "-"} yrs
+                    </p>
+                    <p className="text-sm text-gray-700">
+                      <b>CPD Level:</b> {r.cpd_level ?? "-"}
+                    </p>
+                    <p className="text-sm text-gray-700">
+                      <b>File:</b> {fileName || "-"}
+                    </p>
+                    <div className="flex gap-3 mt-5">
+                      <button
+                        onClick={() => openFullView(r)}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md flex items-center justify-center gap-2 text-sm hover:bg-gray-50 transition"
+                      >
+                        <Eye size={16} /> Full View
+                      </button>
+                      <button
+                        onClick={() => handleDelete(r.id)}
+                        className="flex-1 px-3 py-2 border border-red-500 text-red-600 rounded-md flex items-center justify-center gap-2 text-sm hover:bg-red-50 transition"
+                      >
+                        <Trash2 size={16} /> Delete
+                      </button>
                     </div>
                   </div>
-                  <p className="text-sm text-gray-700">
-                    <b>Experience:</b> {r.experience_years} yrs
-                  </p>
-                  <p className="text-sm text-gray-700">
-                    <b>CPD Level:</b> {r.cpd_level}
-                  </p>
-                  <p className="text-sm text-gray-700">
-                    <b>File:</b> {r.file_name}
-                  </p>
-                  <div className="flex gap-3 mt-5">
-                    <button
-                      onClick={() => openFullView(r)}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md flex items-center justify-center gap-2 text-sm hover:bg-gray-50 transition"
-                    >
-                      <Eye size={16} /> Full View
-                    </button>
-                    <button
-                      onClick={() => handleDelete(r.id)} // This now opens the modal
-                      className="flex-1 px-3 py-2 border border-red-500 text-red-600 rounded-md flex items-center justify-center gap-2 text-sm hover:bg-red-50 transition"
-                    >
-                      <Trash2 size={16} /> Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
+
             </div>
           )}
         </main>
