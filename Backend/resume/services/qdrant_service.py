@@ -213,7 +213,7 @@ def get_all_points():
 
 
 # ======================================================
-# Delete
+# Delete (With Verification)
 # ======================================================
 def delete_point(point_id):
     initialize_qdrant_collection()
@@ -221,12 +221,25 @@ def delete_point(point_id):
     if not qdrant_client:
         raise RuntimeError("❌ Qdrant not initialized")
 
+    # 1. Perform the delete
     qdrant_client.delete(
         collection_name=COLLECTION_NAME,
-        points_selector=PointIdsList(points=[point_id]),
+        points_selector=models.PointIdsList(points=[point_id]),
         wait=True,
     )
-    print(f"🗑️ Deleted point {point_id}")
+    
+    # 2. Verify it's actually gone
+    try:
+        check = qdrant_client.retrieve(
+            collection_name=COLLECTION_NAME,
+            ids=[point_id]
+        )
+        if check:
+            print(f"❌ CRITICAL ERROR: Point {point_id} was NOT deleted! (Qdrant issue)")
+        else:
+            print(f"🗑️ SUCCESS: Verified deletion for point {point_id}")
+    except Exception as e:
+        print(f"⚠️ Could not verify delete: {e}")
 
 
 # ======================================================

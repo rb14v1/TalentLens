@@ -35,6 +35,9 @@ from .services.qdrant_service import (
 )
 from .services.pdf_parser import extract_text_from_pdf_bytes, parse_resume as simple_parse_resume
 from .services.jd_keyword_service import extract_jd_keywords, match_resume_to_jd
+from qdrant_client.http import models
+from .services.qdrant_service import search_collection
+
 
 
 
@@ -317,6 +320,9 @@ SYNONYM_MAP = {
 }
 
 
+# ============================================================
+# Search Resume (Fixed: Aligned with Dashboard filters)
+# ============================================================
 class ResumeSearchView(APIView):
     def post(self, request, *args, **kwargs):
         query = request.data.get('query', '')
@@ -328,16 +334,16 @@ class ResumeSearchView(APIView):
         try:
             query_embedding = get_text_embedding(query)
         except Exception as e:
-            traceback.print_exc()
-            return Response({'error': f'Embedding generation failed: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': f'Embedding failed: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # build qdrant filter
+        # Build Qdrant Filter
         query_filter = None
         must_conditions = []
 
         exp_range = filters.get("experience", "")
         cpd_level = filters.get("cpd_level", "")
 
+        # 1. Handle CPD Level
         if cpd_level and cpd_level not in ["", "Any"]:
             try:
                 cpd_int = int(cpd_level)
@@ -345,15 +351,18 @@ class ResumeSearchView(APIView):
             except Exception:
                 pass
 
+        # 2. Handle Experience Range (Fixed to match Dashboard keys)
         if exp_range and exp_range != "Any":
-            if exp_range == "0-2":
+            # Dashboard sends keys like "0-2 yrs", so we check for those
+            if exp_range in ["0-2", "0-2 yrs"]:
                 must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=0, lte=2)))
-            elif exp_range == "3-5":
+            elif exp_range in ["3-5", "3-5 yrs"]:
                 must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=3, lte=5)))
-            elif exp_range == "6-10":
+            elif exp_range in ["6-10", "6-10 yrs"]:
                 must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=6, lte=10)))
-            elif exp_range == "10+":
-                must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=10)))
+            elif exp_range in ["10+", "10+ yrs"]:
+                # Consistent with analytics: "10+" means 11 and above (since 10 is in 6-10)
+                must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=11)))
 
         if must_conditions:
             query_filter = models.Filter(must=must_conditions)
@@ -361,38 +370,42 @@ class ResumeSearchView(APIView):
         try:
             all_results = search_collection(query_embedding, query_filter=query_filter, limit=1000)
         except Exception as e:
-            traceback.print_exc()
             return Response({'error': f'Qdrant primary search failed: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+        # Helper to manually filter if Qdrant filter missed (double-check)
         def match_exp(exp_value, exp_range):
             if not exp_range or exp_range == "Any":
                 return True
-            if exp_range == "0-2":
+            if exp_range in ["0-2", "0-2 yrs"]:
                 return 0 <= exp_value <= 2
-            elif exp_range == "3-5":
+            elif exp_range in ["3-5", "3-5 yrs"]:
                 return 3 <= exp_value <= 5
-            elif exp_range == "6-10":
+            elif exp_range in ["6-10", "6-10 yrs"]:
                 return 6 <= exp_value <= 10
-            elif exp_range == "10+":
-                return exp_value >= 10
+            elif exp_range in ["10+", "10+ yrs"]:
+                return exp_value >= 11 # Consistent with chart logic
             return True
 
         filtered_resumes = []
         for match in all_results:
             try:
-                exp_val = int(match.payload.get("experience_years", 0) or 0)
-            except Exception:
-                exp_val = 0
-            try:
-                cpd_val = int(match.payload.get("cpd_level", 0) or 0)
-            except Exception:
-                cpd_val = 0
-            exp_match = match_exp(exp_val, exp_range)
-            cpd_match = (cpd_level in ["", "Any"] or cpd_val == int(cpd_level)) if cpd_level else True
-            if exp_match and cpd_match:
-                filtered_resumes.append(match)
+                payload = match.payload or {}
+                # Get experience (handle potential None/Strings)
+                exp_val = int(payload.get("experience_years", 0) or 0)
+                cpd_val = int(payload.get("cpd_level", 0) or 0)
+                
+                # Check conditions manually as a fallback/confirmation
+                exp_match = match_exp(exp_val, exp_range)
+                
+                cpd_req = int(cpd_level) if (cpd_level and cpd_level != "Any") else None
+                cpd_match = (cpd_req is None) or (cpd_val == cpd_req)
+                
+                if exp_match and cpd_match:
+                    filtered_resumes.append(match)
+            except:
+                continue
 
-        # Build words to highlight / expand using synonym map
+        # Build results
         query_keywords = set(query.lower().split())
         words_to_highlight = set(query_keywords)
         for kw in query_keywords:
@@ -402,68 +415,71 @@ class ResumeSearchView(APIView):
 
         results = []
         for match in filtered_resumes:
-            resume_content = (match.payload.get('resume_text') or '').lower()
+            payload = match.payload or {}
+            resume_content = (payload.get('resume_text') or '').lower()
             matched_keywords = [kw for kw in words_to_highlight if kw in resume_content]
+            
             base_score = match.score or 0
-            keyword_boost = len(matched_keywords) * 5
-            try:
-                exp_years = int(match.payload.get("experience_years", 0) or 0)
-            except Exception:
-                exp_years = 0
-            exp_boost = exp_years * 1.5
-            final_score = min(100, base_score * 100 + keyword_boost + exp_boost)
-            response_data = dict(match.payload)
+            keyword_boost = len(matched_keywords) * 0.05 # Small boost
+            final_score = base_score + keyword_boost
+            
             results.append({
                 'id': match.id,
-                'score': round(final_score, 2),
-                'data': response_data,
+                'score': final_score,
+                'data': dict(payload),
                 'matched_keywords': matched_keywords
             })
 
         results.sort(key=lambda r: r['score'], reverse=True)
         return Response({"results": results, "highlight_words": list(words_to_highlight)}, status=status.HTTP_200_OK)
 
-
 # -----------------------------
 # List resumes (Qdrant)
 # -----------------------------
+
+
 class ResumeListView(APIView):
     def get(self, request):
         try:
             source = request.query_params.get("source", "qdrant").lower()
+            
             if source == "s3":
-                # List objects from S3 (uses list_pdfs helper which returns keys)
+                # List objects from S3 directly
                 formatted_results = []
                 try:
-                    all_keys = list_pdfs(prefix="resumes/")  # adjust prefix if needed
+                    all_keys = list_pdfs(prefix="resumes/")
                     for key in all_keys:
-                        if not key:
-                            continue
+                        if not key: continue
+                        
                         file_name = os.path.basename(key)
-                        # deterministic id so frontend keys remain stable
-                        id_hash = hashlib.sha1(key.encode("utf-8")).hexdigest()
+                        
+                        # ✅ CHANGE: Use the actual filename as the ID. 
+                        # This allows DeleteView to know exactly what file to target.
                         formatted_results.append({
-                            "id": id_hash,
+                            "id": file_name, # <--- Critical Fix: ID is now the filename
                             "candidate_name": os.path.splitext(file_name)[0].replace("_", " ").title(),
                             "email": None,
                             "experience_years": None,
                             "cpd_level": None,
                             "skills": [],
-                            "s3_url": f"s3://{BUCKET}/{key}",
+                            "s3_url": f"https://{BUCKET}.s3.amazonaws.com/{key}",
                             "file_name": file_name,
-                            "readable_file_name": file_name,
                             "resume_text": None
                         })
                     return Response({"results": formatted_results}, status=status.HTTP_200_OK)
                 except Exception as e:
                     traceback.print_exc()
-                    return Response({"error": f"Failed to list S3 resumes: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                    return Response({"error": f"Failed to list S3: {str(e)}"}, status=500)
 
-            # default: existing Qdrant-driven listing (unchanged)
+            # Default: Qdrant list
             qdrant_records = get_all_points()
             formatted_results = []
             for record in qdrant_records:
                 payload = record.payload or {}
+                
+                # Robust filename extraction
+                file_name = payload.get('file_name') or payload.get('readable_file_name') or payload.get('s3_url', '').split('/')[-1]
+
                 formatted_results.append({
                     'id': record.id,
                     'candidate_name': payload.get('candidate_name'),
@@ -472,15 +488,16 @@ class ResumeListView(APIView):
                     'cpd_level': payload.get('cpd_level'),
                     'skills': payload.get('skills', []),
                     's3_url': payload.get('s3_url'),
-                    'file_name': payload.get('file_name'),
+                    'file_name': file_name,
                     'resume_text': payload.get('resume_text')
                 })
 
             return Response({"results": formatted_results}, status=status.HTTP_200_OK)
         except Exception as e:
             traceback.print_exc()
-            return Response({"error": f"An error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+            return Response({"error": str(e)}, status=500)
+        
+        
 
 # ============================
 # ENHANCED: Fetch all resumes with detailed S3 parsing
@@ -570,115 +587,85 @@ def fetch_all_resumes(request):
 @api_view(['GET'])
 def filter_resumes(request):
     """
-    FILTER using S3 → PDF → Text Parsing.
-    Supports CPD, EXPERIENCE (bucket range) & SKILL.
+    Filter resumes by specific criteria (CPD, Experience, Skill).
+    Used when clicking on Dashboard charts.
+    Queries Qdrant directly for fast, accurate results.
     """
-    print("\n" + "="*60)
-    print("=== FILTER_RESUMES (S3 PARSER) CALLED ===")
-
-    cpd_level = request.query_params.get('cpd_level')
-    skill = request.query_params.get('skill')
-    experience_bucket = request.query_params.get('experience')
-
-    print("Requested Filters:")
-    print(" - CPD Level:", cpd_level)
-    print(" - Skill:", skill)
-    print(" - Experience Bucket:", experience_bucket)
-
+    print("=== FILTER_RESUMES (QDRANT) CALLED ===")
     try:
-        pdf_keys = list_pdfs()
-        print(f"[1] Found {len(pdf_keys)} PDFs in S3")
+        cpd_level = request.query_params.get('cpd_level')
+        skill = request.query_params.get('skill')
+        # The dashboard sends "10+ yrs", "0-2 yrs", etc.
+        experience_bucket = request.query_params.get('experience') 
 
-        matching_resumes = []
+        print(f"Filters: CPD={cpd_level}, Skill={skill}, Exp={experience_bucket}")
 
-        for idx, pdf_key in enumerate(pdf_keys, 1):
-            print(f"\n[{idx}/{len(pdf_keys)}] Processing {pdf_key}")
+        must_conditions = []
 
+        # 1. CPD Filter
+        if cpd_level:
             try:
-                pdf_bytes = get_pdf_bytes(pdf_key)
-                text = extract_text_from_pdf_bytes(pdf_bytes)
-                resume_data = simple_parse_resume(text)
+                val = int(cpd_level)
+                must_conditions.append(models.FieldCondition(
+                    key="cpd_level", match=models.MatchValue(value=val)
+                ))
+            except: pass
 
+        # 2. Experience Filter
+        if experience_bucket:
+            # Logic must match 'analytics_overview' exactly
+            if experience_bucket in ["0-2", "0-2 yrs"]:
+                must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=0, lte=2)))
+            elif experience_bucket in ["3-5", "3-5 yrs"]:
+                must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=3, lte=5)))
+            elif experience_bucket in ["6-10", "6-10 yrs"]:
+                must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=6, lte=10)))
+            elif experience_bucket in ["10+", "10+ yrs"]:
+                # Matches >10 (so 11 and up)
+                must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=11)))
 
-                # Proper Skill Split
-                skills_list = _split_skills(resume_data.get("skills", []))
-                resume_data["skills"] = skills_list
+        # 3. Skill Filter
+        if skill:
+            # Search the 'skills' list in Qdrant
+            must_conditions.append(models.FieldCondition(
+                key="skills", match=models.MatchValue(value=skill)
+            ))
 
-                # Normalize Experience → convert raw "5 years" → bucket "3-5 yrs"
-                raw_exp = resume_data.get("experience", "")
-                exp_years = 0
+        # Execute Search
+        query_filter = models.Filter(must=must_conditions) if must_conditions else None
+        
+        # We use a zero vector because we only care about the filter, not semantic similarity
+        dummy_vector = [0.0] * 384 
+        
+        # Search limit 100 to show plenty of results
+        results = search_collection(dummy_vector, query_filter=query_filter, limit=100)
 
-                try:
-                    # Extract first integer found in exp string
-                    m = re.search(r"(\d+)", raw_exp)
-                    if m:
-                        exp_years = int(m.group(1))
-                except:
-                    exp_years = 0
+        formatted_results = []
+        for match in results:
+            p = match.payload or {}
+            
+            # Extract filename securely
+            file_name = p.get('file_name') or p.get('readable_file_name') or p.get('s3_url', '').split('/')[-1]
 
-                # Convert number → experience bucket
-                if exp_years <= 2:
-                    exp_bucket = "0-2 yrs"
-                elif exp_years <= 5:
-                    exp_bucket = "3-5 yrs"
-                elif exp_years <= 10:
-                    exp_bucket = "6-10 yrs"
-                else:
-                    exp_bucket = "10+ yrs"
+            formatted_results.append({
+                'id': match.id,
+                'candidate_name': p.get('candidate_name', 'Unknown'),
+                'email': p.get('email', 'N/A'),
+                'experience_years': p.get('experience_years', 0),
+                'cpd_level': p.get('cpd_level', 0),
+                'skills': p.get('skills', []),
+                's3_url': p.get('s3_url', ''),
+                'file_name': file_name,
+                'resume_text': p.get('resume_text', '')
+            })
 
-                resume_data["experience_bucket"] = exp_bucket
-
-                # ------------------------
-                # APPLY FILTER CONDITIONS
-                # ------------------------
-
-                # CPD FILTER
-                if cpd_level:
-                    if str(resume_data.get("cpd_level")) != str(cpd_level):
-                        continue
-
-                # EXPERIENCE BUCKET FILTER
-                if experience_bucket:
-                    if exp_bucket.lower() != experience_bucket.lower():
-                        continue
-
-                # SKILL FILTER
-                if skill:
-                    if not any(skill.lower() == s.lower() for s in skills_list):
-                        continue
-
-                # Prepare response data
-                file_name = os.path.basename(pdf_key)
-                if not resume_data.get("name"):
-                    resume_data["name"] = file_name.replace(".pdf", "").replace("_", " ").title()
-
-                matching_resumes.append({
-                    "file_name": file_name,
-                    "s3_path": f"s3://{BUCKET}/{pdf_key}",
-                    "skills": skills_list,
-                    "experience_bucket": exp_bucket,
-                    **resume_data
-                })
-
-                print(f"  → MATCH: {resume_data['name']}")
-
-            except Exception as e:
-                print(f"  ❌ Error parsing {pdf_key}: {e}")
-                continue
-
-        print("\n" + "="*60)
-        print(f"FINAL MATCH COUNT: {len(matching_resumes)}")
-        print("="*60)
-
-        return Response({
-            "message": f"Found {len(matching_resumes)} matching resumes.",
-            "data": matching_resumes
-        })
+        print(f"✅ Found {len(formatted_results)} matches.")
+        return Response({"results": formatted_results}, status=status.HTTP_200_OK)
 
     except Exception as e:
-        print("❌ CRASH IN FILTER:", e)
-        return Response({"detail": str(e)}, status=500)
-
+        import traceback
+        traceback.print_exc()
+        return Response({"error": str(e)}, status=500)
 
 
 
@@ -821,153 +808,137 @@ def _get_qdrant_record_by_id(qdrant_id: str):
 # -----------------------------
 # Resume detail (by qdrant id)
 # -----------------------------
-class ResumeDetailView(APIView):
-    def get(self, request, pk):
-        try:
-            record = _get_qdrant_record_by_id(pk)
-            if not record:
-                return Response({"detail": "Resume not found"}, status=status.HTTP_404_NOT_FOUND)
-            payload = record.payload or {}
-            data = {
-                "id": record.id,
-                "candidate_name": payload.get("candidate_name"),
-                "email": payload.get("email"),
-                "experience_years": payload.get("experience_years"),
-                "cpd_level": payload.get("cpd_level"),
-                "skills": payload.get("skills", []),
-                "s3_url": payload.get("s3_url"),
-                "resume_text": payload.get("resume_text"),
-                "file_name": payload.get("file_name"),
-                "year_joined": payload.get("year_joined"),
-            }
-            return Response({"data": data}, status=status.HTTP_200_OK)
-        except Exception as e:
-            traceback.print_exc()
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+# class ResumeDetailView(APIView):
+#     def get(self, request, pk):
+#         try:
+#             record = _get_qdrant_record_by_id(pk)
+#             if not record:
+#                 return Response({"detail": "Resume not found"}, status=status.HTTP_404_NOT_FOUND)
+#             payload = record.payload or {}
+#             data = {
+#                 "id": record.id,
+#                 "candidate_name": payload.get("candidate_name"),
+#                 "email": payload.get("email"),
+#                 "experience_years": payload.get("experience_years"),
+#                 "cpd_level": payload.get("cpd_level"),
+#                 "skills": payload.get("skills", []),
+#                 "s3_url": payload.get("s3_url"),
+#                 "resume_text": payload.get("resume_text"),
+#                 "file_name": payload.get("file_name"),
+#                 "year_joined": payload.get("year_joined"),
+#             }
+#             return Response({"data": data}, status=status.HTTP_200_OK)
+#         except Exception as e:
+#             traceback.print_exc()
+#             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# -----------------------------
-# Delete resume (by qdrant id)
-# -----------------------------
+
+
+# ============================================================
+# ✅ Delete Resume (Strict Version)
+# ============================================================
+# In Backend/resume/views.py
+
 class ResumeDeleteView(APIView):
-    # delete by qdrant id (url: /resumes/delete/<id>/)
     def delete(self, request, id):
         if not id:
-            return Response({'error': 'No resume ID provided'}, status=status.HTTP_400_BAD_REQUEST)
-
-        s3_deleted = False
-        s3_delete_errors = []
-        tried_keys = []
+            return Response({'error': 'No ID provided'}, status=400)
 
         try:
-            # 1) Try to fetch the point (prefer service helper if available)
+            object_key = None
+            candidate_name = "Unknown File"
+            point_id_to_delete = None
             record = None
+
+            # 1. Check if ID is a UUID (Qdrant ID) or a Filename
+            is_uuid = False
             try:
-                # retrieve_point should return an object or dict with 'payload'
-                record = retrieve_point(id)
-            except Exception:
-                # fallback to scanning all points (slower) - _get_qdrant_record_by_id returns object or None
-                record = _get_qdrant_record_by_id(id)
+                uuid.UUID(str(id))
+                is_uuid = True
+            except ValueError:
+                is_uuid = False
 
-            payload = {}
+            if is_uuid:
+                # It's a UUID, find it in the database
+                try:
+                    record = retrieve_point(id)
+                    point_id_to_delete = id
+                except:
+                    pass
+            else:
+                # It's a filename (e.g., "Anika.pdf"), so set the key directly
+                object_key = f"resumes/{id}"
+                candidate_name = id
+                
+                # Try to find the UUID for this file so we can delete it from DB too
+                try:
+                    # Calculate the UUID based on the filename
+                    point_id_to_delete = _filename_to_point_id(id)
+                except:
+                    pass
+
+            # 2. If we found a DB record, get S3 info from it
             if record:
-                # support both dict-like and object with .payload
-                payload = getattr(record, "payload", None) or (record if isinstance(record, dict) else {}) or {}
-
-            # 2) derive S3 key candidates from payload
-            s3_url = payload.get("s3_url") if payload else None
-            file_name = payload.get("file_name") if payload else None
-            readable_name = payload.get("readable_file_name") if payload else None
-
-            key_candidates = []
-
-            # If s3_url is an s3:// or https URL, try to parse the path component
-            if s3_url:
-                try:
-                    if s3_url.startswith("s3://"):
-                        # s3://bucket/path/to/object.pdf
-                        # ensure it refers to our BUCKET
-                        without_scheme = s3_url[len("s3://"):]
-                        if without_scheme.startswith(f"{BUCKET}/"):
-                            key_candidates.append(without_scheme.split("/", 1)[1])
-                        else:
-                            # if bucket missing in url, still attempt to take the path portion
-                            parts = without_scheme.split("/", 1)
-                            if len(parts) > 1:
-                                key_candidates.append(parts[1])
-                    else:
-                        # https or presigned URL — parse path
+                payload = record.payload or {}
+                s3_url = payload.get('s3_url')
+                file_name = payload.get('file_name')
+                candidate_name = payload.get('candidate_name', 'Candidate')
+                
+                if s3_url:
+                    try:
                         parsed = urlparse(s3_url)
-                        if parsed.path:
-                            key_candidates.append(parsed.path.lstrip("/"))
-                except Exception as e:
-                    s3_delete_errors.append(f"Failed to parse s3_url: {str(e)}")
+                        object_key = parsed.path.lstrip('/')
+                    except:
+                        pass
+                
+                if not object_key and file_name:
+                    object_key = f"resumes/{file_name}"
 
-            # Try common filename-based keys
-            if file_name:
-                key_candidates.append(file_name)
-                key_candidates.append(f"resumes/{file_name}")
-
-            if readable_name:
-                key_candidates.append(readable_name)
-                key_candidates.append(f"resumes/{readable_name}")
-
-            # Normalize and deduplicate candidates
-            normalized = []
-            for k in key_candidates:
-                if not k:
-                    continue
-                k_clean = k.lstrip("/")
-                if k_clean not in normalized:
-                    normalized.append(k_clean)
-            key_candidates = normalized
-
-            # 3) Try to locate and delete the first existing object in S3
-            for key in key_candidates:
-                tried_keys.append(key)
+            # 3. Execute S3 Delete
+            if object_key:
                 try:
-                    # verify object exists
-                    s3.head_object(Bucket=BUCKET, Key=key)
-                    # if exists -> delete
-                    s3.delete_object(Bucket=BUCKET, Key=key)
-                    s3_deleted = True
-                    break
-                except ClientError as ce:
-                    # object not found or permission issue -> continue to next candidate
-                    s3_delete_errors.append(f"Head/Delete for '{key}' failed: {str(ce)}")
-                    continue
+                    s3.head_object(Bucket=BUCKET, Key=object_key)
+                    s3.delete_object(Bucket=BUCKET, Key=object_key)
+                    print(f"🗑️ Deleted from S3: {object_key}")
+                except ClientError as e:
+                    if e.response['Error']['Code'] == "404":
+                        print(f"⚠️ File not found in S3 (already deleted?): {object_key}")
+                    else:
+                        print(f"❌ S3 Error: {e}")
+
+            # 4. Execute Qdrant Delete
+            if point_id_to_delete:
+                try:
+                    delete_point(point_id_to_delete)
+                    print(f"✅ Deleted from Qdrant: {point_id_to_delete}")
                 except Exception as e:
-                    s3_delete_errors.append(f"Error deleting '{key}': {str(e)}")
-                    continue
+                    print(f"⚠️ Qdrant delete failed: {e}")
 
-            # 4) Delete from Qdrant (always attempt even if S3 delete failed)
-            delete_point(id)
-
-            # 5) Build response summary
-            resp = {
-                "message": f"Resume with id {id} deleted from Qdrant.",
-                "qdrant_deleted": True,
-                "s3_deleted": s3_deleted,
-                "s3_tried_keys": tried_keys,
-            }
-            if s3_delete_errors:
-                resp["s3_errors"] = s3_delete_errors
-
-            return Response(resp, status=status.HTTP_200_OK)
+            return Response({"message": f"Deleted {candidate_name}"}, status=200)
 
         except Exception as e:
             traceback.print_exc()
-            return Response({"error": f"Failed to delete resume: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
- 
- 
+            return Response({"error": str(e)}, status=500)
+                
+
+
 @api_view(['GET'])
 def analytics_overview(request):
     try:
         records = get_all_points()
 
-        cpd_levels = {}
-        experience = {}
+        # Initialize with 0s
+        cpd_levels = {str(i): 0 for i in range(1, 7)}
+        experience = {
+            "0-2 yrs": 0,
+            "3-5 yrs": 0,
+            "6-10 yrs": 0,
+            "10+ yrs": 0
+        }
         skill_counts = {}
+
+        print(f"📊 ANALYTICS: Processing {len(records)} records...")
 
         for rec in records:
             p = rec.payload or {}
@@ -975,27 +946,38 @@ def analytics_overview(request):
             # CPD
             cpd = p.get("cpd_level")
             if cpd:
-                cpd = str(cpd)
-                cpd_levels[cpd] = cpd_levels.get(cpd, 0) + 1
+                cpd_str = str(cpd)
+                if cpd_str in cpd_levels:
+                    cpd_levels[cpd_str] += 1
 
             # EXPERIENCE
-            exp = p.get("experience_years")
-            if exp is not None:
-                exp = int(exp)
-                if exp <= 2: bucket = "0-2 yrs"
-                elif exp <= 5: bucket = "3-5 yrs"
-                elif exp <= 10: bucket = "6-10 yrs"
-                else: bucket = "10+ yrs"
-                experience[bucket] = experience.get(bucket, 0) + 1
+            # Robust extraction: handles strings, ints, and floats
+            raw_exp = p.get("experience_years")
+            if raw_exp is not None:
+                try:
+                    # Convert to float first to handle "10.5", then int
+                    exp = int(float(raw_exp))
+                    
+                    if exp <= 2: bucket = "0-2 yrs"
+                    elif exp <= 5: bucket = "3-5 yrs"
+                    elif exp <= 10: bucket = "6-10 yrs"
+                    else: bucket = "10+ yrs"
+                    
+                    experience[bucket] += 1
+                    print(f"  - Found {exp} years -> {bucket}") # Debug print
+                except (ValueError, TypeError):
+                    print(f"  - ⚠️ Invalid experience value: {raw_exp}")
+                    pass 
 
             # SKILLS
             skills = p.get("skills", [])
             for s in skills:
-                s = s.strip().lower()
+                s = str(s).strip().lower()
                 if s:
                     skill_counts[s] = skill_counts.get(s, 0) + 1
 
-        # return EXACTLY what frontend expects
+        print(f"✅ Experience Data: {experience}")
+
         return Response({
             "cpd_levels": cpd_levels,
             "experience": experience,
@@ -1006,6 +988,8 @@ def analytics_overview(request):
         import traceback
         traceback.print_exc()
         return Response({"error": str(e)}, status=500)
+    
+
 # ====================================================================
 # ✅ NEW JD MATCHING ENDPOINTS
 # ====================================================================

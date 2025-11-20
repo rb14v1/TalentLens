@@ -38,7 +38,8 @@ const Recruiterdashboard = () => {
       try {
         const res = await fetch(`${API_BASE_URL}/analytics/`);
         const data = await res.json();
- 
+
+        // 1. Transform CPD Data
         const cpdArr = Object.entries(data.cpd_levels || {}).map(
           ([level, count]) => ({
             name: `Level ${level}`,
@@ -46,21 +47,25 @@ const Recruiterdashboard = () => {
             raw: level,
           })
         );
- 
-        const expArr = Object.entries(data.experience || {}).map(
-          ([range, count]) => ({
-            name: range,
-            value: count,
-          })
-        );
- 
+
+        // 2. Transform Experience Data (FIXED)
+        // Ensure specific order and correct mapping
+        const expOrder = ["0-2 yrs", "3-5 yrs", "6-10 yrs", "10+ yrs"];
+        const rawExp = data.experience || {};
+        
+        const expArr = expOrder.map(key => ({
+          name: key,
+          value: rawExp[key] || 0 // Default to 0 if key is missing
+        }));
+
+        // 3. Transform Skill Data
         const skillArr = Object.entries(data.skills || {}).map(
           ([skill, count]) => ({
             name: skill,
             value: count,
           })
         );
- 
+
         setCpdData(cpdArr);
         setExpData(expArr);
         setSkillData(skillArr);
@@ -70,7 +75,7 @@ const Recruiterdashboard = () => {
         setLoading(false);
       }
     };
- 
+
     fetchDashboardData();
   }, []);
  
