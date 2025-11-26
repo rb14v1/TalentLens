@@ -1,4 +1,4 @@
-import React, { useState } from "react"; // <-- 1. Import useState
+import React, { useState } from "react";
 import { Routes, Route } from "react-router-dom";
 import RecruiterHome from "./pages/RecruiterHome";
 import Upload from "./pages/Upload";
@@ -14,14 +14,20 @@ import Description from "./pages/Description";
 import Preview from "./pages/Preview";
 import Register from "./pages/register";
 import Login from "./pages/login";
+import PublishedJDs from "./pages/PublishedJDs"; // ✅ Correctly Imported
+import Drafts from "./pages/Drafts";
 
 function App() {
-  // --- 2. Create the shared state here ---
   const [jdData, setJdData] = useState(null);
 
   return (
     <Routes>
-      <Route path="/" element={<RecruiterHome />} />
+
+      {/* Login page is now the landing page */}
+      <Route path="/" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+
+      <Route path="/home" element={<RecruiterHome />} />
       <Route path="/upload" element={<Upload />} />
       <Route path="/retrieve" element={<Retrieve />} />
       <Route path="/manageresume" element={<Manageresume />} />
@@ -31,19 +37,21 @@ function App() {
       <Route path="/jobdescriptionmatch" element={<JobDescriptionMatch />} />
       <Route path="/managerdashboard" element={<Managerdashboard />} />
       <Route path="/managerpage" element={<Managerpage />} />
-      <Route path="/register" element={<Register />} />
-      <Route path="/login" element={<Login />} />
+      <Route path="/drafts" element={<Drafts />} />
       
-      {/* --- 3. Pass the state and function as props --- */}
+      
+      {/* ✅ ADDED THIS MISSING ROUTE */}
+      <Route path="/published-jds" element={<PublishedJDs />} />
+
+      {/* Shared State Routes */}
       <Route
         path="/description"
         element={<Description jdData={jdData} setJdData={setJdData} />}
       />
 
-      {/* --- 4. Pass the data to the Preview page --- */}
       <Route
         path="/preview"
-        element={<Preview jdData={jdData} setJdData={setJdData} />} // Pass setJdData here too
+        element={<Preview jdData={jdData} setJdData={setJdData} />}
       />
     </Routes>
   );

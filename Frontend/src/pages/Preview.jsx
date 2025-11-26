@@ -1,3 +1,4 @@
+import { API_BASE_URL } from "../config";
 import React, { useRef, useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
@@ -78,18 +79,53 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
     });
   };
 
-  // Publish JD
-  const handlePublish = () => {
-    const publishedJDs = JSON.parse(localStorage.getItem("publishedJDs") || "[]");
-    publishedJDs.push({ ...jdData, id: Date.now() });
-    localStorage.setItem("publishedJDs", JSON.stringify(publishedJDs));
-    
-    if (setJdDataFromProp) {
-      setJdDataFromProp(null); 
+  // =====================================================
+  // ✅ MODIFIED: Publish JD (Stays on page)
+  // =====================================================
+  const handlePublish = async () => {
+    try {
+      // 1. Send data to the backend
+      const response = await fetch(`${API_BASE_URL}/jobs/save/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(jdData),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || "Failed to publish");
+      }
+
+      // 2. Save to LocalStorage (History)
+      const publishedJDs = JSON.parse(localStorage.getItem("publishedJDs") || "[]");
+      publishedJDs.push({ ...jdData, id: Date.now() });
+      localStorage.setItem("publishedJDs", JSON.stringify(publishedJDs));
+
+      // 3. Show Success Modal
+      setModalState({
+        isOpen: true,
+        title: "Success!",
+        message: "Job Description published successfully!",
+        type: "success",
+        // ✅ FIX: No callback here, so it stays on the page when closed
+        onCloseCallback: null, 
+      });
+
+      // ⚠️ IMPORTANT: We removed the lines that cleared setJdData(null)
+      // so the user can still see the preview after publishing.
+
+    } catch (error) {
+      console.error("Publish error:", error);
+      setModalState({
+        isOpen: true,
+        title: "Publish Failed",
+        message: `Error: ${error.message}`,
+        type: "error",
+        onCloseCallback: null
+      });
     }
-    setJdData(null); 
-    
-    navigate("/recruiterdashboard"); 
   };
 
   // Edit Section Navigation
@@ -121,7 +157,7 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
     },
     {
       title: "Company & Contact",
-      fields: ["companyName", "companyDescription", "contactEmail"],
+      fields: ["companyName", "companyDescription","hiringManagerName", "contactEmail"],
     },
     {
       title: "Additional Settings",

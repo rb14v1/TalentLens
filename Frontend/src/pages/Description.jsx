@@ -23,6 +23,7 @@ const Description = ({ setJdData, jdData }) => {
       specialization: "",
       companyName: "",
       companyDescription: "",
+      hiringManagerName: "",
       contactEmail: "",
       postingDate: "",
       deadline: "",
@@ -31,7 +32,6 @@ const Description = ({ setJdData, jdData }) => {
     }
   );
 
-  // ✅ Handle section navigation when redirected from Preview page
   useEffect(() => {
     if (location.state?.editSection !== undefined) {
       setSectionIndex(location.state.editSection);
@@ -46,31 +46,13 @@ const Description = ({ setJdData, jdData }) => {
     { id: 5, name: "Additional Settings" },
   ];
 
+  // ✅ FIX 1: Simplified Department Options
   const dropdownOptions = {
     department: [
-      {
-        group: "Engineering / IT",
-        options: [
-          "Software Development",
-          "DevOps",
-          "Data Science",
-          "Machine Learning",
-          "Quality Assurance",
-          "Cybersecurity",
-        ],
-      },
-      {
-        group: "Human Resources",
-        options: ["Recruiter", "HR Generalist", "Talent Management"],
-      },
-      {
-        group: "Sales & Marketing",
-        options: ["Marketing Specialist", "Sales Executive", "Brand Manager"],
-      },
-      {
-        group: "Finance & Accounting",
-        options: ["Accountant", "Financial Analyst", "Auditor"],
-      },
+      "Engineering / IT",
+      "Human Resources",
+      "Sales & Marketing",
+      "Finance & Accounting",
     ],
     jobType: ["Full-time", "Part-time", "Contract", "Internship"],
     education: ["Bachelor’s", "Master’s", "PhD"],
@@ -108,21 +90,12 @@ const Description = ({ setJdData, jdData }) => {
             className="flex-1 border border-gray-300 rounded-md p-2 bg-white text-[#0D1F29] focus:outline-none focus:ring-2 focus:ring-[#21B0BE]"
           >
             <option value="">Select {label}</option>
-            {name === "department"
-              ? dropdownOptions.department.map((group, gIdx) => (
-                  <optgroup key={gIdx} label={group.group}>
-                    {group.options.map((option, idx) => (
-                      <option key={idx} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))
-              : dropdownOptions[name].map((option, idx) => (
-                  <option key={idx} value={option}>
-                    {option}
-                  </option>
-                ))}
+            {/* ✅ FIX 2: Removed complex grouping logic. Now it renders simply like other dropdowns. */}
+            {dropdownOptions[name].map((option, idx) => (
+              <option key={idx} value={option}>
+                {option}
+              </option>
+            ))}
           </select>
         ) : (
           <input
@@ -157,6 +130,7 @@ const Description = ({ setJdData, jdData }) => {
     [
       ["Company Name", "companyName"],
       ["Company Description", "companyDescription"],
+      ["Hiring Manager Name", "hiringManagerName"],
       ["Contact Email", "contactEmail"],
     ],
     [
@@ -174,7 +148,6 @@ const Description = ({ setJdData, jdData }) => {
       </h1>
 
       <div className="w-full max-w-[95%] bg-white rounded-2xl shadow-lg p-12 border border-gray-200">
-        {/* Navigation Tabs */}
         <div className="flex justify-between mb-10">
           {sections.map((section, i) => (
             <button
@@ -191,19 +164,16 @@ const Description = ({ setJdData, jdData }) => {
           ))}
         </div>
 
-        {/* Section Title */}
         <h2 className="text-2xl font-semibold mb-6 text-[#0D1F29]">
           {sections[sectionIndex].name}
         </h2>
 
-        {/* Input Fields */}
         <div className="space-y-5">
           {sectionFields[sectionIndex].map(([label, name, type]) =>
             renderField(label, name, type)
           )}
         </div>
 
-        {/* Next / Preview Button */}
         <div className="flex justify-end gap-4 mt-10">
           <button
             onClick={handleNext}

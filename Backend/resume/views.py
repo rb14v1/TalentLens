@@ -1199,6 +1199,7 @@ def check_hashes(request):
 # ====================================================================
 from .models import AppUser
 import json
+from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
  
 @csrf_exempt
@@ -1214,11 +1215,32 @@ def register_user(request):
         email = data.get("email")
         password = data.get("password")
         role = data.get("role")
+        department = data.get("department")  # ✅ Get department from request
  
+        # Validate required fields
+        if not all([name, email, password, role]):
+            return JsonResponse({"error": "All fields are required"}, status=400)
+ 
+        # Check if email already exists
         if AppUser.objects.filter(email=email).exists():
             return JsonResponse({"error": "Email already exists"}, status=400)
  
-        user = AppUser(name=name, email=email, password=password, role=role)
+        # Validate hiring manager has department
+        if role == "hiring_manager" and not department:
+            return JsonResponse({"error": "Department is required for hiring managers"}, status=400)
+ 
+        # Set department to None for non-hiring managers
+        if role in ["recruiter", "manager"]:
+            department = None
+ 
+        # Create user with department
+        user = AppUser(
+            name=name,
+            email=email,
+            password=password,
+            role=role,
+            department=department  # ✅ Save department
+        )
         user.save()
  
         return JsonResponse({"message": "Registered successfully"}, status=201)
@@ -1227,7 +1249,10 @@ def register_user(request):
         return JsonResponse({"error": str(e)}, status=500)
  
  
- 
+# In Backend/resume/views.py
+
+# ... existing imports ...
+
 @csrf_exempt
 def login_user(request):
     """Login user and return their role for redirect."""
@@ -1247,11 +1272,44 @@ def login_user(request):
         if not user.check_password(password):
             return JsonResponse({"error": "Invalid password"}, status=400)
  
-        # SUCCESS — send role to frontend
-        return JsonResponse({"role": user.role, "message": "Login successful"})
+        # ✅ CRITICAL FIX: Save User ID to session
+        # This creates the cookie so the server remembers you
+        request.session['user_id'] = user.id
+        request.session.modified = True
+
+        return JsonResponse({
+            "role": user.role,
+            "name": user.name,
+            "department": user.department,
+            "message": "Login successful"
+        })
  
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
- 
- 
- 
+
+
+@api_view(['GET'])
+def user_profile(request):
+    """
+    Fetches the currently logged-in user's profile.
+    """
+    try:
+        # 1. Get User ID from session
+        user_id = request.session.get('user_id')
+        if not user_id:
+            return Response({"error": "Not logged in"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # 2. Fetch from DB
+        user = AppUser.objects.get(id=user_id)
+
+        return Response({
+            "name": user.name,
+            "email": user.email,
+            "role": user.role,
+            "department": user.department or "General"
+        }, status=status.HTTP_200_OK)
+
+    except AppUser.DoesNotExist:
+        return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

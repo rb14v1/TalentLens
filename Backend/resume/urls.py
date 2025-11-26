@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from . import job_views
 from .views import (
     filter_resumes,
     view_resume,
@@ -46,7 +47,14 @@ urlpatterns = [
     path('validate_word/', views.validate_word, name='validate_word'),
     path("register/", views.register_user),
     path("login/", views.login_user),
- 
+    path('jobs/save/', job_views.save_job_description, name='save-job'),
+    path('jobs/delete/<str:job_id>/', job_views.delete_job_description, name='delete-job'),
+    path('jobs/list/', job_views.get_all_jobs, name='list-jobs'),
+    path('user/profile/', views.user_profile, name='user-profile'),
+    path('jobs/list/', job_views.list_jobs, name='list_jobs'),
+    path('jobs/save/', job_views.publish_jd, name='publish_jd'),
+    path('jobs/delete/<str:job_id>/', job_views.delete_jd, name='delete_jd'),
+    path('jobs/status/<str:job_id>/', job_views.update_jd_status, name='update_jd_status'), 
 ]
  
  

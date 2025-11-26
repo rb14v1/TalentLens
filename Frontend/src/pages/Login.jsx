@@ -1,49 +1,68 @@
 import React, { useState } from "react";
 import axios from "axios";
+import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../config";
- 
+
 function Login() {
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
- 
+  const navigate = useNavigate();
+
   const handleChange = (e) =>
     setForm({ ...form, [e.target.name]: e.target.value });
- 
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
- 
+
     try {
-      const res = await axios.post(`${API_BASE_URL}/login/`, form);
-      const role = res.data.role;
- 
-      // Your custom redirection
+      const res = await axios.post(`${API_BASE_URL}/login/`, form, {
+        headers: { "Content-Type": "application/json" },
+        withCredentials: true // <--- THIS IS THE CRITICAL MISSING PIECE
+      });
+      
+      // ✅ 1. Get data from response
+      const { role, name, department, message } = res.data;
+
+      // ✅ 2. SAVE TO LOCAL STORAGE (Critical Step!)
+      // We save the email from the form state since the backend might not return it in this specific view
+      localStorage.setItem("user", JSON.stringify({
+        name: name || "User",
+        email: form.email, 
+        role: role,
+        department: department || ""
+      }));
+
+      // 3. Redirect based on role
       if (role === "manager") {
-        window.location.href = "/HiringManagerPage";
+        navigate("/HiringManagerPage");
       } else if (role === "recruiter") {
-        window.location.href = "/";
+        navigate("/home"); 
       } else if (role === "hiring_manager") {
-        window.location.href = "/Managerpage";
+        navigate("/managerpage");
       }
     } catch (err) {
       setError(err.response?.data?.error || "Invalid credentials.");
     }
   };
- 
+
   return (
     <div className="flex h-screen w-full">
      
       {/* LEFT GRADIENT PANEL */}
-      <div className="hidden md:flex w-1/3 bg-gradient-to-b from-[#004e92] via-[#015f72] to-[#00A8A8] text-white flex-col justify-center px-10">
-        <h1 className="text-5xl font-bold">ProMatch</h1>
-        <p className="text-lg mt-3 opacity-90">Smart Hiring Platform</p>
+      <div className="hidden md:flex w-1/3 bg-gradient-to-b from-[#0F394D] to-[#21B0BE] items-center justify-center text-white p-8">
+        <div>
+          <h1 className="text-4xl font-bold mb-4">Welcome Back!</h1>
+          <p className="text-lg text-teal-100">
+            Manage your recruitment process efficiently.
+          </p>
+        </div>
       </div>
- 
+
       {/* RIGHT LOGIN FORM */}
-      <div className="flex w-full md:w-2/3 justify-center items-center bg-gray-100">
-        <div className="bg-white w-96 p-8 rounded-xl shadow-xl">
- 
-          <h2 className="text-3xl font-bold mb-1">Welcome Back 👋</h2>
+      <div className="flex-1 flex items-center justify-center bg-gray-50">
+        <div className="bg-white p-10 rounded-2xl shadow-xl w-full max-w-md border border-gray-200">
+          <h2 className="text-3xl font-bold text-[#0F394D] mb-2">Login</h2>
           <p className="text-gray-500 mb-4">Login to continue</p>
  
           {error && (
@@ -81,19 +100,15 @@ function Login() {
           </form>
  
           <p className="text-center mt-4 text-sm">
-            Don’t have an account?{" "}
-            <a href="/register" className="text-blue-600 font-semibold">
-              Register
+            Don't have an account?{" "}
+            <a href="/register" className="text-blue-600 font-semibold hover:underline">
+              Sign up
             </a>
           </p>
- 
         </div>
       </div>
     </div>
   );
 }
- 
+
 export default Login;
- 
- 
- 

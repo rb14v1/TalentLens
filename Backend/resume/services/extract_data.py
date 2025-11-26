@@ -410,5 +410,3 @@ def extract_fields(file_obj) -> Dict:
         "skills": skills,
         "resume_text": text or "",
     }
- 
- 

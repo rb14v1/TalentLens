@@ -127,7 +127,20 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # ===============================
 # CORS (Frontend can access backend)
 # ===============================
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True  # Allows cookies to be sent
+
+# Replace this with your actual Frontend URL (Vite usually uses 5173, React 3000)
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    #"http://localhost:3000", # Add this if you use port 3000
+]
+
+# Optional: reliable cookie settings for localhost development
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = False  # False for localhost (http), True for production (https)
+CSRF_COOKIE_SECURE = False
 
 
 # ===============================
@@ -163,7 +176,7 @@ REST_FRAMEWORK = {
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'my_db',
+        'NAME': 'my_db1',
         'USER': 'postgres',
         'PASSWORD': '1234567890',
         'HOST': 'localhost',
