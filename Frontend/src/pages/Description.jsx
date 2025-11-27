@@ -1,6 +1,29 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
+// ----- Country-City-Currency location data -----
+const locations = [
+  { country: "Ireland", city: "Dublin", currency: "EUR" },
+  { country: "Ireland", city: "Cork", currency: "EUR" },
+  { country: "United Kingdom", city: "London", currency: "GBP" },
+  { country: "United Kingdom", city: "Belfast", currency: "GBP" },
+  { country: "United Kingdom", city: "Birmingham", currency: "GBP" },
+  { country: "United Kingdom", city: "Edinburgh", currency: "GBP" },
+  { country: "India", city: "Bengaluru", currency: "INR" },
+  { country: "India", city: "Pune", currency: "INR" },
+  { country: "Spain", city: "Malaga", currency: "EUR" },
+  { country: "Slovenia", city: "Trzin", currency: "EUR" },
+  { country: "Australia", city: "Sydney (Chatswood, NSW)", currency: "AUD" },
+  { country: "United States", city: "New York", currency: "USD" },
+];
+
+const getCurrencyForLocation = (locStr) => {
+  const entry = locations.find(
+    (loc) => `${loc.country} - ${loc.city}` === locStr
+  );
+  return entry ? entry.currency : "";
+};
+
 const Description = ({ setJdData, jdData }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -14,6 +37,7 @@ const Description = ({ setJdData, jdData }) => {
       location: "",
       experience: "",
       salary: "",
+      salaryCurrency: "",
       openings: "",
       summary: "",
       responsibilities: "",
@@ -46,7 +70,7 @@ const Description = ({ setJdData, jdData }) => {
     { id: 5, name: "Additional Settings" },
   ];
 
-  // ✅ FIX 1: Simplified Department Options
+  // Department dropdown options
   const dropdownOptions = {
     department: [
       "Engineering / IT",
@@ -62,7 +86,16 @@ const Description = ({ setJdData, jdData }) => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    if (name === "location") {
+      const currency = getCurrencyForLocation(value);
+      setFormData((prev) => ({
+        ...prev,
+        location: value,
+        salaryCurrency: currency,
+      }));
+    } else {
+      setFormData((prev) => ({ ...prev, [name]: value }));
+    }
   };
 
   const handleNext = () => {
@@ -75,6 +108,62 @@ const Description = ({ setJdData, jdData }) => {
   };
 
   const renderField = (label, name, type = "text") => {
+    // --- Custom: Location Dropdown ---
+    if (name === "location") {
+      return (
+        <div className="flex items-center justify-between gap-6 w-full mb-4">
+          <label className="text-base font-semibold text-[#0D1F29] w-1/5 text-right">
+            {label}
+          </label>
+          <select
+            name="location"
+            value={formData.location}
+            onChange={handleChange}
+            className="flex-1 border border-gray-300 rounded-md p-2 bg-white text-[#0D1F29] focus:outline-none focus:ring-2 focus:ring-[#21B0BE]"
+          >
+            <option value="">Select Location</option>
+            {locations.map((loc, idx) => (
+              <option
+                key={idx}
+                value={`${loc.country} - ${loc.city}`}
+              >
+                {loc.country} - {loc.city}
+              </option>
+            ))}
+          </select>
+        </div>
+      );
+    }
+
+    // --- Custom: Salary field with currency ---
+    // --- Custom: Salary field with currency (Professional styling) ---
+if (name === "salary") {
+  return (
+    <div className="flex items-center justify-between gap-6 w-full mb-4">
+      <label className="text-base font-semibold text-[#0D1F29] w-1/5 text-right">
+        {label}
+      </label>
+      <div className="flex-1 flex items-center border border-gray-300 rounded-md bg-white focus-within:ring-2 focus-within:ring-[#21B0BE]">
+        {formData.salaryCurrency && (
+          <span className="px-3 py-2 bg-gray-100 text-[#0D1F29] font-semibold border-r border-gray-300">
+            {formData.salaryCurrency}
+          </span>
+        )}
+        <input
+          type="number"
+          name="salary"
+          value={formData.salary}
+          onChange={handleChange}
+          placeholder={formData.salaryCurrency ? "Enter amount" : "Select location first"}
+          className="flex-1 p-2 text-[#0D1F29] outline-none bg-transparent"
+        />
+      </div>
+    </div>
+  );
+}
+
+
+    // --- Dropdowns for other fields ---
     const isDropdown = ["department", "jobType", "education", "workMode", "status"].includes(name);
 
     return (
@@ -90,7 +179,6 @@ const Description = ({ setJdData, jdData }) => {
             className="flex-1 border border-gray-300 rounded-md p-2 bg-white text-[#0D1F29] focus:outline-none focus:ring-2 focus:ring-[#21B0BE]"
           >
             <option value="">Select {label}</option>
-            {/* ✅ FIX 2: Removed complex grouping logic. Now it renders simply like other dropdowns. */}
             {dropdownOptions[name].map((option, idx) => (
               <option key={idx} value={option}>
                 {option}

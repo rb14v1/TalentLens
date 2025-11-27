@@ -8,6 +8,8 @@ const ManagerDashboard = () => {
   const [jds, setJds] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
  
+  const [collapsed, setCollapsed] = useState(false); // <--- ADDED
+ 
   useEffect(() => {
     const published = JSON.parse(localStorage.getItem("publishedJDs") || "[]");
     setJds(published);
@@ -23,14 +25,17 @@ const ManagerDashboard = () => {
     <div className="flex min-h-screen bg-[#F5F5F5]">
  
       {/* SIDEBAR */}
-      <div className="w-72">
-        <HiringManagerSidebar jds={jds} />
-      </div>
+      <HiringManagerSidebar jds={jds} setCollapsed={setCollapsed} />  {/* <--- UPDATED */}
  
       {/* MAIN CONTENT */}
-      <div className="flex-1 p-10">
+      <div
+        className={`
+          flex-1 p-10 transition-all duration-300
+          ${collapsed ? "ml-20" : "ml-72"}   /* <--- ADAPTIVE SHIFT */
+        `}
+      >
  
-        {/* HEADER — FIXED & CLEAN */}
+        {/* HEADER */}
         <div className="flex items-center justify-between mb-10">
  
           {/* Center Title */}
@@ -62,13 +67,11 @@ const ManagerDashboard = () => {
           />
         </div>
  
-        {/* MAIN TWO CARDS GRID */}
+        {/* CARDS SECTIONS */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
  
-          {/* MY JDs SECTION */}
+          {/* MY JDs */}
           <div className="bg-white rounded-3xl p-8 shadow-lg border">
- 
-            {/* HEADER + CREATE BUTTON */}
             <div className="flex justify-between items-center mb-5">
               <h2 className="text-2xl font-semibold text-[#0F394D]">
                 My JDs
@@ -83,7 +86,6 @@ const ManagerDashboard = () => {
               </button>
             </div>
  
-            {/* CARDS */}
             {filteredJDs.length > 0 ? (
               filteredJDs.map((jd) => (
                 <div
@@ -119,7 +121,7 @@ const ManagerDashboard = () => {
             )}
           </div>
  
-          {/* OTHER JDs SECTION */}
+          {/* OTHER JDs */}
           <div className="bg-white rounded-3xl p-8 shadow-lg border">
             <h2 className="text-2xl font-semibold text-[#0F394D] mb-5">All / Other JDs</h2>
  
@@ -160,6 +162,5 @@ const ManagerDashboard = () => {
 };
  
 export default ManagerDashboard;
- 
  
  

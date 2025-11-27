@@ -131,10 +131,13 @@ CORS_ALLOW_CREDENTIALS = True  # Allows cookies to be sent
 
 # Replace this with your actual Frontend URL (Vite usually uses 5173, React 3000)
 CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    #"http://localhost:3000", # Add this if you use port 3000
 ]
+
+
 
 # Optional: reliable cookie settings for localhost development
 SESSION_COOKIE_SAMESITE = 'Lax'
@@ -176,7 +179,7 @@ REST_FRAMEWORK = {
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'my_db1',
+        'NAME': 'my_db2',
         'USER': 'postgres',
         'PASSWORD': '1234567890',
         'HOST': 'localhost',

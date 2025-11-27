@@ -43,6 +43,15 @@ urlpatterns = [
     # path('jd/drafts/', views.get_drafts, name='get_drafts'),
     # path('jd/published/', views.get_published_jds, name='get_published_jds'),
    
+
+    # ✅ NEW — JD DRAFT SYSTEM
+    path('jd/draft/save/', job_views.save_jd_draft, name='save_jd_draft'),
+    path('jd/drafts/<str:email>/', job_views.get_jd_drafts, name='get_jd_drafts'),
+    path('jd/draft/delete/<int:draft_id>/', job_views.delete_jd_draft, name='delete_jd_draft'),
+    path('jd/draft/publish/<int:draft_id>/', job_views.publish_jd, name='publish_jd'),
+    
+
+
     # ========== UTILITIES ==========
     path('validate_word/', views.validate_word, name='validate_word'),
     path("register/", views.register_user),

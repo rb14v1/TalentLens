@@ -15,6 +15,28 @@ import {
   Info,
 } from "lucide-react";
 
+// ------ Country-City-Currency data for Preview ------
+const locations = [
+  { country: "Ireland", city: "Dublin", currency: "EUR" },
+  { country: "Ireland", city: "Cork", currency: "EUR" },
+  { country: "United Kingdom", city: "London", currency: "GBP" },
+  { country: "United Kingdom", city: "Belfast", currency: "GBP" },
+  { country: "United Kingdom", city: "Birmingham", currency: "GBP" },
+  { country: "United Kingdom", city: "Edinburgh", currency: "GBP" },
+  { country: "India", city: "Bengaluru", currency: "INR" },
+  { country: "India", city: "Pune", currency: "INR" },
+  { country: "Spain", city: "Malaga", currency: "EUR" },
+  { country: "Slovenia", city: "Trzin", currency: "EUR" },
+  { country: "Australia", city: "Sydney (Chatswood, NSW)", currency: "AUD" },
+  { country: "United States", city: "New York", currency: "USD" },
+];
+const getCurrencyForLocation = (locationStr) => {
+  const entry = locations.find(
+    (loc) => `${loc.country} - ${loc.city}` === locationStr
+  );
+  return entry ? entry.currency : "";
+};
+
 const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
   const navigate = useNavigate();
   const printRef = useRef();
@@ -65,18 +87,48 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
       </div>
     );
 
-  // Save Draft
-  const handleSaveDraft = () => {
-    const drafts = JSON.parse(localStorage.getItem("jdDrafts") || "[]");
-    const updatedDrafts = [...drafts, { ...jdData, id: Date.now() }];
-    localStorage.setItem("jdDrafts", JSON.stringify(updatedDrafts));
-    
-    setModalState({
-      isOpen: true,
-      title: "Draft Saved",
-      message: "Your Job Description has been saved to drafts.",
-      type: "success",
-    });
+  // ⭐⭐⭐ BACKEND CONNECTED — Save JD Draft
+  const handleSaveDraft = async () => {
+    try {
+      const user = JSON.parse(localStorage.getItem("user"));
+      if (!user || !user.email) {
+        setModalState({
+          isOpen: true,
+          title: "Error",
+          message: "User not logged in. Please log in first.",
+          type: "error",
+        });
+        return;
+      }
+      const res = await fetch(`${API_BASE_URL}/jd/draft/save/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: jdData.id,
+          email: user.email,
+          data: jdData,
+        }),
+      });
+      if (!res.ok) {
+        throw new Error("Failed to save draft");
+      }
+      const data = await res.json();
+      setJdData((prev) => ({ ...prev, id: data.draft_id }));
+      setModalState({
+        isOpen: true,
+        title: "Draft Saved",
+        message: "Your Job Description has been saved to drafts.",
+        type: "success",
+      });
+    } catch (error) {
+      console.error("Error saving draft:", error);
+      setModalState({
+        isOpen: true,
+        title: "Error",
+        message: "Failed to save draft. Please try again.",
+        type: "error",
+      });
+    }
   };
 
   // =====================================================
@@ -84,7 +136,6 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
   // =====================================================
   const handlePublish = async () => {
     try {
-      // 1. Send data to the backend
       const response = await fetch(`${API_BASE_URL}/jobs/save/`, {
         method: "POST",
         headers: {
@@ -92,30 +143,20 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
         },
         body: JSON.stringify(jdData),
       });
-
       if (!response.ok) {
         const err = await response.json();
         throw new Error(err.error || "Failed to publish");
       }
-
-      // 2. Save to LocalStorage (History)
       const publishedJDs = JSON.parse(localStorage.getItem("publishedJDs") || "[]");
       publishedJDs.push({ ...jdData, id: Date.now() });
       localStorage.setItem("publishedJDs", JSON.stringify(publishedJDs));
-
-      // 3. Show Success Modal
       setModalState({
         isOpen: true,
         title: "Success!",
         message: "Job Description published successfully!",
         type: "success",
-        // ✅ FIX: No callback here, so it stays on the page when closed
-        onCloseCallback: null, 
+        onCloseCallback: null,
       });
-
-      // ⚠️ IMPORTANT: We removed the lines that cleared setJdData(null)
-      // so the user can still see the preview after publishing.
-
     } catch (error) {
       console.error("Publish error:", error);
       setModalState({
@@ -171,9 +212,7 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
         <h1 className="text-4xl font-bold mb-10 text-[#0D1F29]">
           Job Description Preview
         </h1>
-
         <div className="w-full max-w-[95%] bg-white rounded-2xl shadow-lg border border-gray-200 p-10 flex">
-          
           {/* Left Side (Screen View - Unchanged) */}
           <div className="flex-1 bg-[#FAFAFA] rounded-lg shadow-inner p-8 overflow-y-auto h-[75vh]">
             {sections.map((section, i) => (
@@ -189,26 +228,47 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
                     ✏️ Edit
                   </button>
                 </div>
-
                 {section.fields.map(
                   (field) =>
                     jdData[field] && (
-                      <p 
-                        key={field} 
-                        className="text-[#0D1F29] mb-2 leading-relaxed" 
-                        style={{ whiteSpace: 'pre-wrap' }}
+                      <p
+                        key={field}
+                        className="text-[#0D1F29] mb-2 leading-relaxed"
+                        style={{ whiteSpace: "pre-wrap", display: "flex", alignItems: "center" }}
                       >
                         <strong>
                           {field.replace(/([A-Z])/g, " $1").trim()}:
                         </strong>{" "}
-                        {jdData[field]}
+                        {/* --- Professional Currency Display for Salary --- */}
+                        {field === "salary" ? (
+                          <>
+                            {jdData[field]}
+                            {jdData.location && (
+                              <span
+                                style={{
+                                  marginLeft: 10,
+                                  padding: "2px 8px",
+                                  borderRadius: "6px",
+                                  background: "#F2F6F9",
+                                  color: "#0F394D",
+                                  fontWeight: 600,
+                                  fontSize: "1rem",
+                                  border: "1px solid #e4e7ea"
+                                }}
+                              >
+                                {getCurrencyForLocation(jdData.location)}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          jdData[field]
+                        )}
                       </p>
                     )
                 )}
               </div>
             ))}
           </div>
-
           {/* Right Side (Action Buttons) */}
           <div className="w-[250px] flex flex-col justify-center items-center ml-10 gap-6">
             <button
@@ -231,7 +291,6 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
             </button>
           </div>
         </div>
-
         {/* ================================================================= */}
         {/* ✅ HIDDEN PRINT TEMPLATE (Formal Style + Uppercase Subheadings) */}
         {/* ================================================================= */}
@@ -241,7 +300,6 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
             className="p-12 bg-white text-black"
             style={{ fontFamily: '"Times New Roman", Times, serif' }}
           >
-            {/* Formal Header */}
             <div className="text-center border-b-2 border-black pb-6 mb-8">
               <h1 className="text-4xl font-bold capitalize tracking-wide text-black">
                 {jdData.jobTitle || "Job Description"}
@@ -255,13 +313,10 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
                 {jdData.experience && <span>⏳ {jdData.experience} Exp.</span>}
               </div>
             </div>
-
-            {/* Formal Body */}
             <div className="space-y-8">
               {sections.map((section, i) => {
                 const hasData = section.fields.some(f => jdData[f]);
                 if (!hasData) return null;
-
                 return (
                   <div key={i} className="mb-6">
                     <h3 className="text-xl font-bold border-b border-gray-400 mb-4 pb-2 capitalize text-black">
@@ -271,12 +326,34 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
                       {section.fields.map((field) => 
                         jdData[field] ? (
                           <div key={field} className="mb-4">
-                            {/* ✅ CHANGED: Added 'uppercase', 'text-sm', and 'tracking-wide' */}
                             <span className="font-bold text-black block mb-1 text-sm uppercase tracking-wide">
-                               {field.replace(/([A-Z])/g, " $1").trim()}:
+                              {field.replace(/([A-Z])/g, " $1").trim()}:
                             </span>
-                            <p className="text-gray-900 text-base leading-relaxed whitespace-pre-wrap">
-                              {jdData[field]}
+                            {/* --- Print template also shows currency for salary --- */}
+                            <p className="text-gray-900 text-base leading-relaxed whitespace-pre-wrap" style={{ display: "flex", alignItems: "center" }}>
+                              {field === "salary" ? (
+                                <>
+                                  {jdData[field]}
+                                  {jdData.location && (
+                                    <span
+                                      style={{
+                                        marginLeft: 8,
+                                        padding: "2px 8px",
+                                        borderRadius: "6px",
+                                        background: "#F2F6F9",
+                                        color: "#0F394D",
+                                        fontWeight: 600,
+                                        fontSize: "1rem",
+                                        border: "1px solid #e4e7ea"
+                                      }}
+                                    >
+                                      {getCurrencyForLocation(jdData.location)}
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                jdData[field]
+                              )}
                             </p>
                           </div>
                         ) : null
@@ -289,7 +366,6 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
           </div>
         </div>
       </div>
-
       {/* Custom Modal Component */}
       <CustomAlertModal
         isOpen={modalState.isOpen}
@@ -302,22 +378,18 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
   );
 };
 
-// Reusable Modal Component
 const CustomAlertModal = ({ isOpen, title, message, type = "info", onClose }) => {
   if (!isOpen) return null;
-
   const icons = {
     success: <CheckCircle className="w-12 h-12 text-green-500" />,
     error: <XCircle className="w-12 h-12 text-red-500" />,
     info: <Info className="w-12 h-12 text-[#21B0BE]" />,
   };
-
   const buttonStyles = {
     info: "bg-gradient-to-r from-[#0F394D] to-[#21B0BE] hover:opacity-90",
     success: "bg-gradient-to-r from-[#0F394D] to-[#21B0BE] hover:opacity-90",
     error: "bg-red-600 hover:bg-red-700",
   };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="relative w-full max-w-md p-6 bg-white rounded-2xl shadow-xl border border-gray-200 m-4">

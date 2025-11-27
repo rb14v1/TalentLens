@@ -1,23 +1,23 @@
 // src/pages/Drafts.jsx
- 
+
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Pencil, Trash2, Upload } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { API_BASE_URL } from "../config";
 import HiringManagerSidebar from "../components/sidebar/HiringManagerSidebar";
- 
+
 const Drafts = () => {
   const [drafts, setDrafts] = useState([]);
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
- 
+
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem("user"));
     if (user?.email) {
       fetchDrafts(user.email);
     }
   }, []);
- 
+
   const fetchDrafts = async (email) => {
     try {
       const res = await fetch(`${API_BASE_URL}/jd/drafts/${email}/`);
@@ -27,30 +27,22 @@ const Drafts = () => {
       console.error("Error loading drafts:", err);
     }
   };
- 
+
   const deleteDraft = async (id) => {
     await fetch(`${API_BASE_URL}/jd/draft/delete/${id}/`, {
       method: "DELETE",
     });
     setDrafts((prev) => prev.filter((d) => d.id !== id));
   };
- 
+
   const editDraft = (draft) => {
     navigate("/description", { state: { jdData: draft.data } });
   };
- 
-  const publishDraft = async (draft) => {
-    await fetch(`${API_BASE_URL}/jd/draft/publish/${draft.id}/`, {
-      method: "POST",
-    });
-    alert("Draft Published Successfully!");
-    navigate("/managerdashboard");
-  };
- 
+
   return (
     <div className="flex min-h-screen bg-[#F8FAF9]">
       <HiringManagerSidebar setCollapsed={setCollapsed} />
- 
+
       <main
         className={`flex-1 transition-all duration-300 p-10 ${
           collapsed ? "ml-20" : "ml-72"
@@ -59,7 +51,7 @@ const Drafts = () => {
         <h1 className="text-4xl font-bold text-center text-[#073C4D] mb-12 tracking-wide">
           Draft Job Descriptions
         </h1>
- 
+
         {drafts.length === 0 ? (
           <p className="text-[#073C4D]/60 text-lg italic text-center">
             No draft job descriptions available.
@@ -84,7 +76,6 @@ const Drafts = () => {
                   <h3 className="text-xl font-semibold text-[#073C4D]">
                     {draft.title}
                   </h3>
- 
                   <span
                     className="
                       px-4 py-1
@@ -98,18 +89,16 @@ const Drafts = () => {
                     Draft
                   </span>
                 </div>
- 
+
                 <p className="text-[#073C4D]/60 text-sm mb-1">
                   Last Updated: {new Date(draft.updated_at).toLocaleString()}
                 </p>
- 
                 <p className="text-[#073C4D]/80 text-sm mt-3 line-clamp-2">
                   {draft.data?.summary || "No description available"}
                 </p>
- 
+
                 <div className="flex gap-4 mt-8 text-sm font-medium">
- 
-                  {/* ✅ EDIT BUTTON */}
+                  {/* Edit Button */}
                   <button
                     onClick={() => editDraft(draft)}
                     className="
@@ -125,8 +114,7 @@ const Drafts = () => {
                   >
                     <Pencil size={16} /> Edit
                   </button>
- 
-                  {/* ✅ DELETE BUTTON */}
+                  {/* Delete Button */}
                   <button
                     onClick={() => deleteDraft(draft.id)}
                     className="
@@ -142,24 +130,7 @@ const Drafts = () => {
                   >
                     <Trash2 size={16} /> Delete
                   </button>
- 
-                  {/* ✅ PUBLISH BUTTON */}
-                  <button
-                    onClick={() => publishDraft(draft)}
-                    className="
-                      flex items-center gap-2
-                      bg-[#1CA3A3]
-                      text-white
-                      px-4 py-2
-                      rounded-full
-                      hover:bg-[#147A7A]
-                      shadow-sm
-                      transition
-                    "
-                  >
-                    <Upload size={16} /> Publish
-                  </button>
- 
+                  {/* Publish Button REMOVED */}
                 </div>
               </div>
             ))}
@@ -169,7 +140,5 @@ const Drafts = () => {
     </div>
   );
 };
- 
+
 export default Drafts;
- 
- 

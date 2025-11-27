@@ -623,3 +623,95 @@ def update_jd_status(request, job_id):
         # Print error to terminal so we can see it
         print(f"❌ Status Update Error: {str(e)}")
         return Response({"error": str(e)}, status=500)
+    
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import json
+from .models import AppUser, JDDraft
+ 
+ 
+@csrf_exempt
+def save_jd_draft(request):
+    print("=== JD Save Request Received ===")
+    
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=400)
+
+    body = json.loads(request.body)
+    print(f"Request body: {body}")
+
+    email = body.get("email")
+    data = body.get("data")
+    title = data.get("jobTitle") or "Untitled JD"
+    
+    print(f"Email: {email}, Title: {title}")
+
+    try:
+        user = AppUser.objects.get(email=email)
+        print(f"User found: {user.id}")
+    except AppUser.DoesNotExist:
+        print("User not found!")
+        return JsonResponse({"error": "User not found"}, status=404)
+
+    draft_id = body.get("id")
+
+    if draft_id:
+        draft = JDDraft.objects.get(id=draft_id)
+        draft.data = data
+        draft.title = title
+        draft.save()
+        print(f"Draft updated: {draft.id}")
+    else:
+        draft = JDDraft.objects.create(
+            user=user,
+            title=title,
+            data=data,
+        )
+        print(f"New draft created: {draft.id}")
+    
+    # Verify it was saved
+    count = JDDraft.objects.count()
+    print(f"Total JD drafts in database: {count}")
+
+    return JsonResponse({"message": "Draft saved", "draft_id": draft.id})
+
+ 
+def get_jd_drafts(request, email):
+    try:
+        user = AppUser.objects.get(email=email)
+    except AppUser.DoesNotExist:
+        return JsonResponse({"error": "User not found"}, status=404)
+ 
+    drafts = JDDraft.objects.filter(user=user).order_by("-updated_at")
+    result = []
+ 
+    for d in drafts:
+        result.append({
+            "id": d.id,
+            "title": d.title,
+            "updated_at": d.updated_at,
+            "data": d.data,
+            "status": d.status,
+        })
+ 
+    return JsonResponse({"drafts": result})
+@csrf_exempt
+def delete_jd_draft(request, draft_id):
+    if request.method != "DELETE":
+        return JsonResponse({"error": "DELETE required"}, status=400)
+ 
+    try:
+        JDDraft.objects.get(id=draft_id).delete()
+        return JsonResponse({"message": "Draft deleted"})
+    except JDDraft.DoesNotExist:
+        return JsonResponse({"error": "Not found"}, status=404)
+@csrf_exempt
+def publish_jd(request, draft_id):
+    try:
+        draft = JDDraft.objects.get(id=draft_id)
+        draft.status = "published"
+        draft.save()
+        return JsonResponse({"message": "Draft published"})
+    except JDDraft.DoesNotExist:
+        return JsonResponse({"error": "Not found"}, status=404)
+    

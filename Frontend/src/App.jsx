@@ -16,6 +16,8 @@ import Register from "./pages/register";
 import Login from "./pages/login";
 import PublishedJDs from "./pages/PublishedJDs"; // ✅ Correctly Imported
 import Drafts from "./pages/Drafts";
+import MatchedResume from "./pages/MatchedResume";
+import ViewJD from "./pages/ViewJD";
 
 function App() {
   const [jdData, setJdData] = useState(null);
@@ -25,6 +27,7 @@ function App() {
 
       {/* Login page is now the landing page */}
       <Route path="/" element={<Login />} />
+      <Route path="/login" element={<Login />} /> {/* Explicit /login route */}
       <Route path="/register" element={<Register />} />
 
       <Route path="/home" element={<RecruiterHome />} />
@@ -38,6 +41,8 @@ function App() {
       <Route path="/managerdashboard" element={<Managerdashboard />} />
       <Route path="/managerpage" element={<Managerpage />} />
       <Route path="/drafts" element={<Drafts />} />
+      <Route path ="/matchedresume" element={<MatchedResume />} />
+      <Route path="/view-jd/:id" element={<ViewJD />} />
       
       
       {/* ✅ ADDED THIS MISSING ROUTE */}
@@ -54,6 +59,7 @@ function App() {
         element={<Preview jdData={jdData} setJdData={setJdData} />}
       />
     </Routes>
+    
   );
 }
 
