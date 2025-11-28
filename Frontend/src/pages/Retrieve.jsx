@@ -1,42 +1,37 @@
 import React, { useState } from "react";
 import {
   User,
-  Upload,
-  FileSearch,
-  LayoutDashboard,
-  FileText,
-  Settings,
-  LogOut,
   Search,
   XCircle,
-  X,
+  X
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../config";
-
+import RecruiterSidebar from "../components/sidebar/RecruiterSidebar";
+ 
 function Retrieve() {
   const navigate = useNavigate();
-
-  const [active, setActive] = useState("Retrieve");
+ 
+  // ⭐ ADDED FOR ADAPTIVE LAYOUT
+  const [collapsed, setCollapsed] = useState(false);
+ 
   const [department, setDepartment] = useState("");
   const [cpdLevel, setCpdLevel] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [resumes, setResumes] = useState([]);
   const [selectedResume, setSelectedResume] = useState(null);
-
+ 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
-  // Build proxy URL for secure PDF viewing
+ 
   const getPdfProxyUrl = (fileUrl) =>
     `${API_BASE_URL}/proxy_resume/?file_url=${encodeURIComponent(fileUrl)}`;
-
-  // Search resumes
+ 
   const handleSearch = async () => {
     setError(null);
     setLoading(true);
     setResumes([]);
-
+ 
     try {
       const payload = {
         query: searchTerm || "",
@@ -45,7 +40,7 @@ function Retrieve() {
           cpd_level: cpdLevel || "",
         },
       };
-
+ 
       const res = await fetch(`${API_BASE_URL}/search/`, {
         method: "POST",
         headers: {
@@ -53,15 +48,15 @@ function Retrieve() {
         },
         body: JSON.stringify(payload),
       });
-
+ 
       if (!res.ok) {
         const errText = await res.text();
         throw new Error(errText || "Search failed");
       }
-
+ 
       const data = await res.json();
       const results = Array.isArray(data.results) ? data.results : [];
-
+ 
       const mapped = results.map((r) => {
         const payload = r.data || {};
         return {
@@ -85,12 +80,14 @@ function Retrieve() {
           matchScore: Number(r.score) || 0,
           matched_keywords: r.matched_keywords || [],
           s3_url: payload.s3_url || "",
-          // ✅ ADDED THIS: We need the real file_name for the API
-          file_name: payload.file_name || payload.readable_file_name || payload.s3_url?.split("/").pop(),
+          file_name:
+            payload.file_name ||
+            payload.readable_file_name ||
+            payload.s3_url?.split("/").pop(),
           raw_payload: payload,
         };
       });
-
+ 
       setResumes(mapped);
     } catch (err) {
       console.error("Search error:", err);
@@ -99,7 +96,7 @@ function Retrieve() {
       setLoading(false);
     }
   };
-
+ 
   const handleClear = () => {
     setDepartment("");
     setCpdLevel("");
@@ -108,29 +105,27 @@ function Retrieve() {
     setError(null);
     setSelectedResume(null);
   };
-
+ 
   const openFullView = (resume) => {
-  // robustly derive filename (keep same logic Manageresume uses)
     const fileName =
       resume.file_name ||
       resume.readable_file_name ||
       (resume.s3_url ? resume.s3_url.split("/").pop() : null) ||
       resume.raw_payload?.file_name ||
       resume.raw_payload?.readable_file_name;
-
+ 
     if (!fileName) {
       alert("Cannot open: Missing file name");
       return;
     }
-
+ 
     const viewUrl = `${API_BASE_URL}/view_resume/?file_name=${encodeURIComponent(fileName)}`;
-  // open in new tab (same behaviour Manageresume uses)
     window.open(viewUrl, "_blank", "noopener,noreferrer");
   };
-
+ 
   const openModal = (resume) => setSelectedResume(resume);
   const closeModal = () => setSelectedResume(null);
-
+ 
   const handleDownload = (resume) => {
     const url = resume.s3_url || resume.raw_payload?.s3_url;
     if (!url) {
@@ -140,110 +135,35 @@ function Retrieve() {
     const proxy = getPdfProxyUrl(url);
     window.open(proxy, "_blank", "noopener,noreferrer");
   };
-
+ 
   return (
     <div className="min-h-screen flex bg-gradient-to-br from-[#F8FAFC] via-[#E9F1F4] to-[#E4EEF4] relative">
-      {/* Sidebar (Unchanged) */}
-      <aside className="w-72 bg-gradient-to-b from-[#0F394D] to-[#21B0BE] text-white flex flex-col justify-between shadow-lg">
-        <div>
-          <div className="p-6 border-b border-[#1CA9A3]/30 text-center text-xl font-semibold tracking-wide">
-            Recruiter Panel
-          </div>
-
-          <nav className="p-4 flex-1 space-y-2">
-            <button
-              onClick={() => {
-                setActive("Upload");
-                navigate("/upload");
-              }}
-              className={`flex items-center gap-3 w-full p-3 rounded-lg transition ${
-                active === "Upload" ? "bg-white text-[#0F394D]" : "hover:bg-white/10"
-              }`}
-            >
-              <Upload size={18} /> Upload
-            </button>
-
-            <button
-              onClick={() => {
-                setActive("Retrieve");
-              }}
-              className={`flex items-center gap-3 w-full p-3 rounded-lg transition ${
-                active === "Retrieve" ? "bg-white text-[#0F394D]" : "hover:bg-white/10"
-              }`}
-            >
-              <FileSearch size={18} /> Retrieve
-            </button>
-
-            <button
-              onClick={() => {
-                setActive("Dashboard");
-                navigate("/recruiterdashboard");
-              }}
-              className={`flex items-center gap-3 w-full p-3 rounded-lg transition ${
-                active === "Dashboard" ? "bg-white text-[#0F394D]" : "hover:bg-white/10"
-              }`}
-            >
-              <LayoutDashboard size={18} /> Dashboard
-            </button>
-
-            <button
-              onClick={() => {
-                setActive("ManageResume");
-                navigate("/manageresume");
-              }}
-              className={`flex items-center gap-3 w-full p-3 rounded-lg transition ${
-                active === "ManageResume" ? "bg-white text-[#0F394D]" : "hover:bg-white/10"
-              }`}
-            >
-              <FileText size={18} /> Manage Resume
-            </button>
-
-            <button
-              onClick={() => {
-                setActive("Settings");
-                navigate("/settings");
-              }}
-              className={`flex items-center gap-3 w-full p-3 rounded-lg transition ${
-                active === "Settings" ? "bg-white text-[#0F394D]" : "hover:bg-white/10"
-              }`}
-            >
-              <Settings size={18} /> Settings
-            </button>
-          </nav>
-        </div>
-
-        {/* Profile Section (Unchanged) */}
-        <div className="p-5 border-t border-[#1CA9A3]/30 bg-gradient-to-b from-[#0F394D]/90 to-[#21B0BE]/90 flex items-center gap-3">
-          <img
-            src="https://randomuser.me/api/portraits/women/45.jpg"
-            alt="Recruiter"
-            className="w-10 h-10 rounded-full border-2 border-white/70"
-          />
-          <div className="flex-1">
-            <p className="font-semibold text-sm">Recruiter Name</p>
-            <p className="text-xs text-teal-100">HR</p>
-          </div>
-          <button className="p-2 rounded-lg bg-white/10 hover:bg-white/20">
-            <LogOut size={16} />
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Content (Unchanged) */}
-      <main className="flex-1 p-10 relative overflow-y-auto">
+ 
+      {/* ⭐ MAKE SIDEBAR ADAPTIVE */}
+      <RecruiterSidebar active="Retrieve" setCollapsed={setCollapsed} />
+ 
+      {/* ⭐ MAIN CONTENT — ADAPTIVE MARGIN */}
+      <main
+        className={`flex-1 p-10 relative overflow-y-auto transition-all duration-300 ${
+          collapsed ? "ml-20" : "ml-72"
+        }`}
+      >
+ 
+        {/* BACK BUTTON */}
         <button
           onClick={() => navigate("/")}
-          className="absolute top-8 right-8 bg-gradient-to-r from-[#0F394D] to-[#21B0BE] text-white px-5 py-2 rounded-full shadow-md hover:opacity-90 transition-all flex items-center gap-2 z-30"
+          className="absolute top-8 right-8 bg-gradient-to-r from-[#0F394D] to-[#21B0BE] text-white px-6 py-3 rounded-full shadow-md hover:opacity-90 transition-all flex items-center gap-2 z-30"
         >
           Back
         </button>
-
+ 
+        {/* Background Pattern */}
         <div className="absolute inset-0 bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')] opacity-10 pointer-events-none"></div>
-
+ 
         <div className="relative z-10 max-w-6xl mx-auto">
-          <h1 className="text-3xl font-bold text-[#0F394D] mb-6">Retrieve</h1>
-
-          {/* Search Filters (Unchanged) */}
+          <h1 className="text-3xl font-bold text-center text-[#0F394D] mb-6">Retrieve</h1>
+ 
+          {/* SEARCH FILTERS */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <div>
               <label className="block text-gray-700 mb-1 font-medium">Search</label>
@@ -258,7 +178,7 @@ function Retrieve() {
                 />
               </div>
             </div>
-
+ 
             <div>
               <label className="block text-gray-700 mb-1 font-medium">CPD Level</label>
               <select
@@ -276,8 +196,8 @@ function Retrieve() {
               </select>
             </div>
           </div>
-
-          {/* Buttons (Unchanged) */}
+ 
+          {/* BUTTONS */}
           <div className="flex gap-4 mb-8">
             <button
               onClick={handleSearch}
@@ -293,15 +213,15 @@ function Retrieve() {
               <XCircle className="mr-1" size={18} /> Clear
             </button>
           </div>
-
-          {/* Error (Unchanged) */}
+ 
+          {/* ERROR */}
           {error && (
             <div className="mb-4 p-3 bg-red-50 text-red-700 border border-red-100 rounded">
               {error}
             </div>
           )}
-
-          {/* Resume Cards (Unchanged) */}
+ 
+          {/* RESUME CARDS */}
           {loading ? (
             <div className="text-center text-gray-500">Searching resumes…</div>
           ) : resumes.length > 0 ? (
@@ -322,12 +242,12 @@ function Retrieve() {
                       <p className="text-sm text-gray-500">{resume.role}</p>
                     </div>
                   </div>
-
+ 
                   <p className="text-sm text-gray-600 mb-4">
                     <span className="font-medium">CPD Level:</span>{" "}
                     {resume.cpdLevel}
                   </p>
-
+ 
                   <div className="flex gap-2 mb-4">
                     <button
                       onClick={() => openModal(resume)}
@@ -346,8 +266,8 @@ function Retrieve() {
           )}
         </div>
       </main>
-
-      {/* Resume Modal */}
+ 
+      {/* MODAL */}
       {selectedResume && (
         <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 w-full md:w-[720px] relative shadow-2xl overflow-y-auto max-h-[90vh]">
@@ -357,8 +277,8 @@ function Retrieve() {
             >
               <X size={22} />
             </button>
-
-            {/* Modal Header (Unchanged) */}
+ 
+            {/* HEADER */}
             <div className="flex items-center mb-4">
               <div className="bg-[#21B0BE]/20 p-2 rounded-full mr-3">
                 <User className="text-[#0F394D]" size={28} />
@@ -370,8 +290,8 @@ function Retrieve() {
                 <p className="text-gray-500 text-sm">{selectedResume.role}</p>
               </div>
             </div>
-
-            {/* Modal Info (Unchanged) */}
+ 
+            {/* Modal Info */}
             <div className="text-sm text-gray-700 space-y-1 mb-4">
               <p>
                 <span className="font-medium">CPD Level:</span>{" "}
@@ -386,64 +306,72 @@ function Retrieve() {
                 {selectedResume.phone || "—"}
               </p>
             </div>
-
-            {/* Match Score (Unchanged) */}
+ 
+            {/* MATCH SCORE */}
             <div className="mb-5">
               <p className="font-medium text-gray-700 mb-2">Match Score:</p>
-              <div className="w-full bg-gray-200 rounded-full h-3">
+              <div className="w-full bg-gray-200 rounded-full h-4">
                 <div
-                  className="bg-[#21B0BE] h-3 rounded-full transition-all"
+                  className="bg-gradient-to-r from-[#21B0BE] to-[#0F394D] h-4 rounded-full transition-all duration-500 flex items-center justify-end pr-2"
                   style={{ width: `${selectedResume.matchScore}%` }}
-                ></div>
+                >
+                  <span className="text-xs font-semibold text-white">
+                    {selectedResume.matchScore.toFixed(1)}%
+                  </span>
+                </div>
               </div>
               <p className="text-sm text-gray-600 mt-1">
                 {selectedResume.matchScore}% match with job description
               </p>
             </div>
-
-            {/* Experience (Unchanged) */}
+ 
+            {/* Experience */}
             <div className="mb-5">
               <p className="font-medium text-gray-700 mb-1">Experience:</p>
               <p className="text-gray-600 text-sm">
                 {selectedResume.experience || "—"}
               </p>
             </div>
-
-            {/* Skills (Unchanged) */}
+ 
+            {/* Skills */}
             <div className="mb-5">
               <p className="font-medium text-gray-700 mb-2">Skills:</p>
               <div className="flex flex-wrap gap-2">
-                {(selectedResume.skills || [])
-                  .slice(0, 30)
-                  .map((s, i) => (
+                {(selectedResume.skills || []).length > 0 ? (
+                  selectedResume.skills.slice(0, 30).map((skill, i) => (
                     <span
                       key={i}
                       className="bg-[#21B0BE]/10 text-[#0F394D] px-3 py-1 rounded-full text-sm"
                     >
-                      {s}
+                      {skill}
                     </span>
-                  ))}
+                  ))
+                ) : (
+                  <p className="text-gray-500 text-sm">No skills listed</p>
+                )}
               </div>
             </div>
-
-            {/* Matched Keywords (Unchanged) */}
+ 
+            {/* Keywords */}
             <div className="mb-6">
               <p className="font-medium text-gray-700 mb-2">Matched Keywords:</p>
               <div className="flex flex-wrap gap-2">
-                {(selectedResume.matched_keywords || []).map((kw, i) => (
-                  <span
-                    key={i}
-                    className="bg-[#0F394D]/10 text-[#0F394D] px-3 py-1 rounded-full text-sm font-medium"
-                  >
-                    {kw}
-                  </span>
-                ))}
+                {(selectedResume.matched_keywords || []).length > 0 ? (
+                  selectedResume.matched_keywords.map((kw, i) => (
+                    <span
+                      key={i}
+                      className="bg-[#0F394D]/10 text-[#0F394D] px-3 py-1 rounded-full text-sm font-medium"
+                    >
+                      {kw}
+                    </span>
+                  ))
+                ) : (
+                  <p className="text-gray-500 text-sm">No matched keywords</p>
+                )}
               </div>
             </div>
-
-            {/* ======================================= */}
-            {/* ✅ FOOTER BUTTONS (FIXED) */}
-            {/* ======================================= */}
+ 
+            {/* Buttons */}
             <div className="flex gap-3">
               <button
                 onClick={() => openFullView(selectedResume)}
@@ -451,23 +379,21 @@ function Retrieve() {
               >
                 Open Full View
               </button>
-
-              {/* Optional: keep a 'Download' button that still uses proxy_resume (unchanged) */}
+ 
               <button
                 onClick={() => handleDownload(selectedResume)}
-                className="w-1/3 px-4 py-2 bg-white border rounded-lg text-[#053245] hover:shadow"
+                className="w-1/3 px-4 py-2 bg-white border border-gray-300 rounded-lg text-[#053245] hover:shadow transition"
               >
                 Download
               </button>
             </div>
-            {/* ======================================= */}
-            {/* END OF FIXES              */}
-            {/* ======================================= */}
           </div>
         </div>
       )}
     </div>
   );
 }
-
+ 
 export default Retrieve;
+ 
+ 

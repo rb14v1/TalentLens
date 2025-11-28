@@ -2,14 +2,14 @@ import React, { useState } from "react";
 import { Upload, Search, ArrowLeft, X, Eye } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../config";
- 
+
 import RecruiterSidebar from "../components/sidebar/RecruiterSidebar";
- 
+
 const JobDescriptionMatch = () => {
   const navigate = useNavigate();
- 
+
   const [collapsed, setCollapsed] = useState(false);
- 
+
   const [jdFile, setJdFile] = useState(null);
   const [jdText, setJdText] = useState("");
   const [jdKeywords, setJdKeywords] = useState([]);
@@ -17,83 +17,175 @@ const JobDescriptionMatch = () => {
   const [loading, setLoading] = useState(false);
   const [matchCount, setMatchCount] = useState(null);
   const [error, setError] = useState(null);
- 
+
   const [loadingPdf, setLoadingPdf] = useState(false);
- 
-  // NEW STATES FOR SUBMISSION FLOW
+
+  // SUBMISSION FLOW (existing)
   const [submissionMode, setSubmissionMode] = useState(false);
   const [selectedResumes, setSelectedResumes] = useState([]);
   const [confirmPopup, setConfirmPopup] = useState(false);
- 
+
+  // NEW: store JD info for saving
+  const [currentJD, setCurrentJD] = useState(null);
+  const [confirming, setConfirming] = useState(false);
+
   const handleFileChange = (e) => setJdFile(e.target.files[0]);
- 
+
   const handleViewResume = (resume) => {
     const fileName =
       resume.file_name ||
       resume.readable_file_name ||
       (resume.s3_url ? resume.s3_url.split("/").pop() : null);
- 
+
     if (!fileName) {
       alert("Cannot open: Missing file name");
       return;
     }
- 
+
     const viewUrl = `${API_BASE_URL}/view_resume/?file_name=${encodeURIComponent(
       fileName
     )}`;
     window.open(viewUrl, "_blank");
   };
- 
+
   const handleMatchResumes = async () => {
     if (!jdFile) return setError("Please upload a Job Description file.");
- 
+
     setError(null);
     setLoading(true);
- 
+
     try {
       const formData = new FormData();
       formData.append("jd_file", jdFile);
- 
+
       const matchResponse = await fetch(`${API_BASE_URL}/jd-match/`, {
         method: "POST",
         body: formData,
       });
- 
+
       if (!matchResponse.ok) {
         const errorText = await matchResponse.text();
         throw new Error(errorText);
       }
- 
+
       const matchData = await matchResponse.json();
- 
+
       setJdText(matchData.jd_text || "");
       setJdKeywords(matchData.jd_keywords || []);
       setMatchingResumes(matchData.matches || []);
       setMatchCount(matchData.total_matches || 0);
+
+      // reset selection state
       setSubmissionMode(false);
       setSelectedResumes([]);
+
+      // NEW: basic JD info for saving matches
+      setCurrentJD({
+        id: matchData.jd_id || `jd_${Date.now()}`,
+        title:
+          matchData.jd_title ||
+          (jdFile ? jdFile.name.replace(".pdf", "") : "Job Description"),
+        department: matchData.department || "engineering_it",
+      });
     } catch (err) {
       setError("Something went wrong. Please try again.");
     }
- 
+
     setLoading(false);
   };
- 
-  const toggleResumeSelection = (id) => {
+
+  const toggleResumeSelection = (index) => {
     setSelectedResumes((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      prev.includes(index) ? prev.filter((x) => x !== index) : [...prev, index]
     );
   };
- 
+
+  // NEW: save confirmed selections to backend
+  const handleConfirmSelection = async () => {
+    if (!currentJD) {
+      alert("No job description context found.");
+      return;
+    }
+    if (selectedResumes.length === 0) {
+      alert("Please select at least one resume.");
+      return;
+    }
+
+    setConfirming(true);
+    try {
+      const userEmail =
+        localStorage.getItem("userEmail") ||
+        sessionStorage.getItem("userEmail");
+
+      if (!userEmail) {
+        alert("User session expired. Please login again.");
+        navigate("/login");
+        return;
+      }
+
+      const selectedData = selectedResumes.map((idx) => {
+        const r = matchingResumes[idx];
+        return {
+          id: r.id || String(idx),
+          name: r.candidate_name || r.name || r.email || "Unknown",
+          email: r.email || "",
+          match_score:
+            r.match_score ??
+            (r.match_percentage != null
+              ? `${Math.round(r.match_percentage)}%`
+              : ""),
+          matched_skills: r.matched_skills || [],
+          experience_years: r.experience_years || 0,
+          s3_url: r.s3_url || "",
+          file_name: r.file_name || r.readable_file_name || "",
+        };
+      });
+
+      const payload = {
+        jd_id: currentJD.id,
+        jd_title: currentJD.title,
+        jd_department: currentJD.department,
+        confirmed_by_email: userEmail,
+        resumes: selectedData,
+      };
+
+      const res = await fetch(`${API_BASE_URL}/confirmed-matches/save/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to save confirmed matches");
+      }
+
+      const data = await res.json();
+      alert(
+        `Resumes submitted successfully! Saved ${data.saved} (skipped ${data.skipped}).`
+      );
+
+      setConfirmPopup(false);
+      setSubmissionMode(false);
+      setSelectedResumes([]);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to submit resumes. Please try again.");
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex bg-[#E1F0F4]">
       {/* SIDEBAR */}
       <RecruiterSidebar setCollapsed={setCollapsed} />
- 
+
       {/* MAIN */}
       <div
-        className={`flex-1 p-12 transition-all duration-300 ${collapsed ? "ml-20" : "ml-72"
-          }`}
+        className={`flex-1 p-12 transition-all duration-300 ${
+          collapsed ? "ml-20" : "ml-72"
+        }`}
       >
         {/* BACK */}
         <button
@@ -105,7 +197,7 @@ const JobDescriptionMatch = () => {
           <ArrowLeft size={18} />
           Back
         </button>
- 
+
         {/* HEADER */}
         <div className="text-center mt-10 mb-14">
           <h1 className="text-5xl font-black text-[#053245] tracking-tight mb-4">
@@ -115,7 +207,7 @@ const JobDescriptionMatch = () => {
             Upload a JD document, then click <strong>Match Resumes</strong>.
           </p>
         </div>
- 
+
         {/* UPLOAD */}
         <div className="max-w-3xl mx-auto bg-white rounded-3xl p-8 shadow-xl border">
           <div className="flex flex-col sm:flex-row gap-5 items-center justify-between">
@@ -131,7 +223,7 @@ const JobDescriptionMatch = () => {
                 onChange={handleFileChange}
               />
             </label>
- 
+
             <button
               onClick={handleMatchResumes}
               disabled={loading || !jdFile}
@@ -144,7 +236,7 @@ const JobDescriptionMatch = () => {
             </button>
           </div>
         </div>
- 
+
         {/* STATUS */}
         <div className="text-center mt-6">
           {error && <p className="text-red-600 font-semibold">{error}</p>}
@@ -154,7 +246,7 @@ const JobDescriptionMatch = () => {
             </p>
           )}
         </div>
- 
+
         {/* GRID */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 mt-12 max-w-7xl mx-auto">
           {/* LEFT — JD PREVIEW */}
@@ -162,7 +254,7 @@ const JobDescriptionMatch = () => {
             <h2 className="text-2xl font-bold text-[#053245] mb-5">
               📄 Job Description Preview
             </h2>
- 
+
             {!jdText ? (
               <p className="text-gray-500 italic text-lg mt-6">
                 Job description content here...
@@ -172,7 +264,7 @@ const JobDescriptionMatch = () => {
                 <div className="max-h-[400px] overflow-y-auto pr-2 text-gray-700 leading-relaxed text-sm">
                   <p className="whitespace-pre-wrap">{jdText}</p>
                 </div>
- 
+
                 {jdKeywords.length > 0 && (
                   <div className="border-t pt-4">
                     <p className="font-semibold text-lg text-[#053245] mb-3">
@@ -193,16 +285,15 @@ const JobDescriptionMatch = () => {
               </div>
             )}
           </div>
- 
+
           {/* RIGHT — MATCHING RESUMES */}
           <div className="bg-white rounded-3xl p-8 shadow-xl border">
             {/* TITLE + SELECT BUTTON */}
             <div className="flex justify-between items-center mb-5">
               <h2 className="text-2xl font-bold text-[#053245]">
-                 Matching Resumes
+                Matching Resumes
               </h2>
- 
-              {/* SELECT BUTTON — enables submission mode */}
+
               {!submissionMode && matchingResumes.length > 0 && (
                 <button
                   onClick={() => setSubmissionMode(true)}
@@ -212,7 +303,7 @@ const JobDescriptionMatch = () => {
                 </button>
               )}
             </div>
- 
+
             {!matchingResumes.length ? (
               <p className="text-gray-500 italic text-lg mt-6">
                 No resumes matched yet...
@@ -227,7 +318,6 @@ const JobDescriptionMatch = () => {
                     {/* HEADER */}
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex items-center gap-3">
-                        {/* Checkbox inside card only in selection mode */}
                         {submissionMode && (
                           <input
                             type="checkbox"
@@ -236,7 +326,7 @@ const JobDescriptionMatch = () => {
                             onChange={() => toggleResumeSelection(idx)}
                           />
                         )}
- 
+
                         <div>
                           <h3 className="font-bold text-lg text-[#073C4D]">
                             {resume.candidate_name || "Unknown"}
@@ -246,25 +336,26 @@ const JobDescriptionMatch = () => {
                           </p>
                         </div>
                       </div>
- 
+
                       <span
-                        className={`px-3 py-1 rounded-full text-sm font-bold ${resume.match_percentage >= 70
+                        className={`px-3 py-1 rounded-full text-sm font-bold ${
+                          resume.match_percentage >= 70
                             ? "bg-green-100 text-green-700"
                             : resume.match_percentage >= 50
-                              ? "bg-yellow-100 text-yellow-700"
-                              : "bg-red-100 text-red-700"
-                          }`}
+                            ? "bg-yellow-100 text-yellow-700"
+                            : "bg-red-100 text-red-700"
+                        }`}
                       >
                         {Math.round(resume.match_percentage)}% Match
                       </span>
                     </div>
- 
+
                     {/* Experience */}
                     <p className="text-sm text-gray-700 mb-3">
                       <strong>Experience:</strong>{" "}
                       {resume.experience_years || 0} years
                     </p>
- 
+
                     {/* Matched Skills */}
                     <div className="mb-2">
                       <p className="text-xs font-semibold text-green-700 mb-1">
@@ -283,7 +374,7 @@ const JobDescriptionMatch = () => {
                           ))}
                       </div>
                     </div>
- 
+
                     {/* View button */}
                     <button
                       onClick={() => handleViewResume(resume)}
@@ -298,8 +389,8 @@ const JobDescriptionMatch = () => {
                 ))}
               </div>
             )}
- 
-            {/* CONFIRM BUTTON (only when any resume is selected) */}
+
+            {/* CONFIRM BUTTON */}
             {submissionMode && selectedResumes.length > 0 && (
               <button
                 onClick={() => setConfirmPopup(true)}
@@ -310,7 +401,7 @@ const JobDescriptionMatch = () => {
             )}
           </div>
         </div>
- 
+
         {/* CONFIRM POPUP */}
         {confirmPopup && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -318,28 +409,31 @@ const JobDescriptionMatch = () => {
               <h2 className="text-xl font-bold text-[#053245] mb-4">
                 Confirm Submission
               </h2>
- 
+
               <p className="text-gray-700 mb-6">
-                You selected <strong>{selectedResumes.length}</strong> resume(s).<br />
+                You selected{" "}
+                <strong>{selectedResumes.length}</strong> resume(s).
+                <br />
                 Are you sure you want to submit?
               </p>
- 
+
               <div className="flex justify-between">
                 <button
                   onClick={() => setConfirmPopup(false)}
-                  className="px-6 py-2 rounded-lg bg-gray-300 text-gray-800 hover:bg-gray-400"
+                  className="px-6 py-2 rounded-lg bg-gray-300 text-gray-800 hover:bg_gray-400"
+                  disabled={confirming}
                 >
                   Cancel
                 </button>
- 
+
                 <button
-                  onClick={() => {
-                    setConfirmPopup(false);
-                    alert("Resumes submitted successfully!");
+                  onClick={async () => {
+                    await handleConfirmSelection();
                   }}
                   className="px-6 py-2 rounded-lg bg-gradient-to-r from-[#053245] to-[#12A7B3] text-white font-semibold hover:opacity-90 transition"
+                  disabled={confirming}
                 >
-                  Submit
+                  {confirming ? "Submitting..." : "Submit"}
                 </button>
               </div>
             </div>
@@ -349,7 +443,5 @@ const JobDescriptionMatch = () => {
     </div>
   );
 };
- 
+
 export default JobDescriptionMatch;
- 
- 

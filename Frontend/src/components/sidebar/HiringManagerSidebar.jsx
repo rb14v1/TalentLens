@@ -25,6 +25,8 @@ const HiringManagerSidebar = ({ setCollapsed }) => {
     if (location.pathname.includes("managerdashboard")) return "JD Dashboard";
     if (location.pathname.includes("description")) return "Manual JD Create";
     if (location.pathname.includes("drafts")) return "Draft";
+    if (location.pathname.includes("published-jds")) return "Published JDs";
+    if (location.pathname.includes("matchedresume")) return "Matched Resume";
     return "";
   };
  
@@ -161,11 +163,8 @@ const HiringManagerSidebar = ({ setCollapsed }) => {
           <SidebarBtn label="JD Dashboard" icon={<Grid />} link="/managerdashboard" />
           <SidebarBtn label="Manual JD Create" icon={<Layers />} link="/description" />
           <SidebarBtn label="Draft" icon={<Briefcase />} link="/drafts" />
-          <SidebarBtn
-            label="Published JDs"
-            icon={<Briefcase size={20} />}
-            link="/published-jds"
-          />
+          <SidebarBtn label="Published JDs" icon={<Briefcase size={20} />} link="/published-jds" />
+          <SidebarBtn label="Matched Resume" icon={<Briefcase size={20} />} link="/matchedresume"/>
         </div>
  
         {/* PROFILE SECTION */}

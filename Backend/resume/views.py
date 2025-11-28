@@ -37,6 +37,8 @@ from .services.pdf_parser import extract_text_from_pdf_bytes, parse_resume as si
 from .services.jd_keyword_service import extract_jd_keywords, match_resume_to_jd
 from qdrant_client.http import models
 from .services.qdrant_service import search_collection
+from .models import ConfirmedMatch
+from django.db import IntegrityError
 
 
 
@@ -1313,3 +1315,167 @@ def user_profile(request):
         return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+
+# ==========================================
+# API: Confirm Resume Selections
+# ==========================================
+@csrf_exempt
+@api_view(['POST'])
+def confirm_resume_matches(request):
+    """
+    Save recruiter's confirmed resume selections to PostgreSQL.
+    
+    Request body:
+    {
+        "jd_id": "uuid",
+        "jd_title": "Cloud Software Engineer",
+        "jd_department": "Engineering/IT",
+        "confirmed_by_email": "recruiter@example.com",
+        "resumes": [
+            {
+                "id": "resume_uuid",
+                "name": "Anika Email",
+                "email": "anika@version.com",
+                "match_score": "58%",
+                "matched_skills": ["azure", "skills", "microservices"],
+                "experience_years": 12,
+                "s3_url": "...",
+                "file_name": "..."
+            },
+            ...
+        ]
+    }
+    """
+    print("=== CONFIRM RESUME MATCHES CALLED ===")
+    
+    try:
+        data = request.data
+        
+        # Get recruiter
+        recruiter_email = data.get("confirmed_by_email")
+        try:
+            recruiter = AppUser.objects.get(email=recruiter_email)
+        except AppUser.DoesNotExist:
+            return Response({"error": "Recruiter not found"}, status=404)
+        
+        # Extract JD details
+        jd_id = data.get("jd_id")
+        jd_title = data.get("jd_title")
+        jd_department = data.get("jd_department")
+        resumes = data.get("resumes", [])
+        
+        if not jd_id or not resumes:
+            return Response({"error": "Missing jd_id or resumes"}, status=400)
+        
+        saved_count = 0
+        skipped_count = 0
+        
+        # Save each confirmed resume
+        for resume in resumes:
+            try:
+                ConfirmedMatch.objects.create(
+                    jd_id=jd_id,
+                    jd_title=jd_title,
+                    jd_department=jd_department,
+                    resume_id=resume.get("id"),
+                    candidate_name=resume.get("name", "Unknown"),
+                    candidate_email=resume.get("email", ""),
+                    match_score=resume.get("match_score", ""),
+                    matched_skills=resume.get("matched_skills", []),
+                    experience_years=resume.get("experience_years", 0),
+                    resume_s3_url=resume.get("s3_url", ""),
+                    resume_file_name=resume.get("file_name", ""),
+                    confirmed_by=recruiter
+                )
+                saved_count += 1
+            except IntegrityError:
+                # Already exists (duplicate)
+                skipped_count += 1
+                continue
+        
+        print(f"✅ Saved {saved_count} matches, skipped {skipped_count} duplicates")
+        
+        return Response({
+            "message": f"Successfully confirmed {saved_count} resume(s)",
+            "saved": saved_count,
+            "skipped": skipped_count
+        }, status=201)
+        
+    except Exception as e:
+        print(f"❌ Error confirming matches: {e}")
+        return Response({"error": str(e)}, status=500)
+
+
+# ==========================================
+# API: Get Confirmed Matches for Hiring Manager
+# ==========================================
+@api_view(['GET'])
+def get_confirmed_matches(request):
+    """
+    Fetch all confirmed resume matches (temporarily NOT filtered by department).
+    Groups results by JD so the frontend sees:
+    [
+      {
+        "jd_id": "...",
+        "jd_title": "...",
+        "jd_department": "...",
+        "resumes": [ ... ]
+      },
+      ...
+    ]
+    """
+    print("=== GET CONFIRMED MATCHES CALLED ===")
+
+    try:
+        # Still check user is logged in (optional – you can relax this too)
+        user_id = request.session.get('user_id')
+        if not user_id:
+            return Response({"error": "Unauthorized"}, status=401)
+
+        user = AppUser.objects.get(id=user_id)
+        print(f"🔍 Fetching matches for user: {user.email} ({user.department})")
+
+        # ✅ TEMP: show ALL matches, do not filter by department
+        matches = (
+            ConfirmedMatch.objects
+            .all()
+            .select_related('confirmed_by')
+            .order_by('-confirmed_at')
+        )
+
+        # Group by JD
+        jd_groups = {}
+        for match in matches:
+            jd_id = match.jd_id
+
+            if jd_id not in jd_groups:
+                jd_groups[jd_id] = {
+                    "jd_id": jd_id,
+                    "jd_title": match.jd_title,
+                    "jd_department": match.jd_department,
+                    "resumes": []
+                }
+
+            jd_groups[jd_id]["resumes"].append({
+                "id": match.id,
+                "resume_id": match.resume_id,
+                "candidate_name": match.candidate_name,
+                "candidate_email": match.candidate_email,
+                "match_score": match.match_score,
+                "matched_skills": match.matched_skills,
+                "experience_years": match.experience_years,
+                "resume_s3_url": match.resume_s3_url,
+                "resume_file_name": match.resume_file_name,
+                "status": match.status,
+                "confirmed_at": match.confirmed_at.strftime("%Y-%m-%d %H:%M"),
+                "confirmed_by": match.confirmed_by.name,
+            })
+
+        result = list(jd_groups.values())
+        print(f"✅ Returning {len(result)} JD groups with confirmed matches")
+        return Response(result, status=200)
+
+    except Exception as e:
+        print(f"❌ Error fetching confirmed matches: {e}")
+        return Response({"error": str(e)}, status=500)

@@ -18,26 +18,31 @@ function Login() {
     try {
       const res = await axios.post(`${API_BASE_URL}/login/`, form, {
         headers: { "Content-Type": "application/json" },
-        withCredentials: true // <--- THIS IS THE CRITICAL MISSING PIECE
+        withCredentials: true, // keep session cookie
       });
-      
-      // ✅ 1. Get data from response
-      const { role, name, department, message } = res.data;
 
-      // ✅ 2. SAVE TO LOCAL STORAGE (Critical Step!)
-      // We save the email from the form state since the backend might not return it in this specific view
-      localStorage.setItem("user", JSON.stringify({
-        name: name || "User",
-        email: form.email, 
-        role: role,
-        department: department || ""
-      }));
+      // 1. Get data from response
+      const { role, name, department } = res.data;
+
+      // 2. Save to localStorage
+      localStorage.setItem(
+        "user",
+        JSON.stringify({
+          name: name || "User",
+          email: form.email,
+          role: role,
+          department: department || "",
+        })
+      );
+
+      // ✅ NEW: store userEmail separately for JD Matcher
+      localStorage.setItem("userEmail", form.email);
 
       // 3. Redirect based on role
       if (role === "manager") {
         navigate("/HiringManagerPage");
       } else if (role === "recruiter") {
-        navigate("/home"); 
+        navigate("/home");
       } else if (role === "hiring_manager") {
         navigate("/managerpage");
       }
@@ -48,7 +53,6 @@ function Login() {
 
   return (
     <div className="flex h-screen w-full">
-     
       {/* LEFT GRADIENT PANEL */}
       <div className="hidden md:flex w-1/3 bg-gradient-to-b from-[#0F394D] to-[#21B0BE] items-center justify-center text-white p-8">
         <div>
@@ -64,13 +68,12 @@ function Login() {
         <div className="bg-white p-10 rounded-2xl shadow-xl w-full max-w-md border border-gray-200">
           <h2 className="text-3xl font-bold text-[#0F394D] mb-2">Login</h2>
           <p className="text-gray-500 mb-4">Login to continue</p>
- 
+
           {error && (
             <p className="text-red-600 font-semibold mb-3">{error}</p>
           )}
- 
+
           <form onSubmit={handleLogin}>
- 
             <label className="font-semibold">Email</label>
             <input
               type="email"
@@ -80,7 +83,7 @@ function Login() {
               onChange={handleChange}
               required
             />
- 
+
             <label className="font-semibold mt-4 block">Password</label>
             <input
               type="password"
@@ -90,7 +93,7 @@ function Login() {
               onChange={handleChange}
               required
             />
- 
+
             <button
               type="submit"
               className="w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-semibold transition"
@@ -98,10 +101,13 @@ function Login() {
               Login
             </button>
           </form>
- 
+
           <p className="text-center mt-4 text-sm">
             Don't have an account?{" "}
-            <a href="/register" className="text-blue-600 font-semibold hover:underline">
+            <a
+              href="/register"
+              className="text-blue-600 font-semibold hover:underline"
+            >
               Sign up
             </a>
           </p>

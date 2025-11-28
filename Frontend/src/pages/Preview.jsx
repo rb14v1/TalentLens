@@ -1,7 +1,6 @@
 import { API_BASE_URL } from "../config";
 import React, { useRef, useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useReactToPrint } from "react-to-print";
 import {
   FileText,
   Clock,
@@ -30,6 +29,7 @@ const locations = [
   { country: "Australia", city: "Sydney (Chatswood, NSW)", currency: "AUD" },
   { country: "United States", city: "New York", currency: "USD" },
 ];
+
 const getCurrencyForLocation = (locationStr) => {
   const entry = locations.find(
     (loc) => `${loc.country} - ${loc.city}` === locationStr
@@ -39,7 +39,6 @@ const getCurrencyForLocation = (locationStr) => {
 
 const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
   const navigate = useNavigate();
-  const printRef = useRef();
   const location = useLocation();
 
   const [jdData, setJdData] = useState(
@@ -65,12 +64,6 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
       setJdDataFromProp(jdData);
     }
   }, [jdData, setJdDataFromProp]);
-
-  // Download PDF
-  const handleDownloadPDF = useReactToPrint({
-    contentRef: printRef,
-    documentTitle: jdData?.jobTitle || "Job_Description",
-  });
 
   if (!jdData)
     return (
@@ -147,7 +140,9 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
         const err = await response.json();
         throw new Error(err.error || "Failed to publish");
       }
-      const publishedJDs = JSON.parse(localStorage.getItem("publishedJDs") || "[]");
+      const publishedJDs = JSON.parse(
+        localStorage.getItem("publishedJDs") || "[]"
+      );
       publishedJDs.push({ ...jdData, id: Date.now() });
       localStorage.setItem("publishedJDs", JSON.stringify(publishedJDs));
       setModalState({
@@ -164,7 +159,7 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
         title: "Publish Failed",
         message: `Error: ${error.message}`,
         type: "error",
-        onCloseCallback: null
+        onCloseCallback: null,
       });
     }
   };
@@ -198,7 +193,7 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
     },
     {
       title: "Company & Contact",
-      fields: ["companyName", "companyDescription","hiringManagerName", "contactEmail"],
+      fields: ["companyName", "companyDescription", "hiringManagerName", "contactEmail"],
     },
     {
       title: "Additional Settings",
@@ -234,7 +229,11 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
                       <p
                         key={field}
                         className="text-[#0D1F29] mb-2 leading-relaxed"
-                        style={{ whiteSpace: "pre-wrap", display: "flex", alignItems: "center" }}
+                        style={{
+                          whiteSpace: "pre-wrap",
+                          display: "flex",
+                          alignItems: "center",
+                        }}
                       >
                         <strong>
                           {field.replace(/([A-Z])/g, " $1").trim()}:
@@ -253,7 +252,7 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
                                   color: "#0F394D",
                                   fontWeight: 600,
                                   fontSize: "1rem",
-                                  border: "1px solid #e4e7ea"
+                                  border: "1px solid #e4e7ea",
                                 }}
                               >
                                 {getCurrencyForLocation(jdData.location)}
@@ -272,12 +271,6 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
           {/* Right Side (Action Buttons) */}
           <div className="w-[250px] flex flex-col justify-center items-center ml-10 gap-6">
             <button
-              onClick={handleDownloadPDF}
-              className="w-full py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-[#0F394D] to-[#21B0BE] hover:opacity-90 transition"
-            >
-              📄 Download PDF
-            </button>
-            <button
               onClick={handleSaveDraft}
               className="w-full py-3 rounded-xl font-semibold text-white bg-[#21B0BE] hover:bg-[#0F394D] transition"
             >
@@ -289,80 +282,6 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
             >
               🚀 Publish JD
             </button>
-          </div>
-        </div>
-        {/* ================================================================= */}
-        {/* ✅ HIDDEN PRINT TEMPLATE (Formal Style + Uppercase Subheadings) */}
-        {/* ================================================================= */}
-        <div style={{ display: "none" }}>
-          <div 
-            ref={printRef} 
-            className="p-12 bg-white text-black"
-            style={{ fontFamily: '"Times New Roman", Times, serif' }}
-          >
-            <div className="text-center border-b-2 border-black pb-6 mb-8">
-              <h1 className="text-4xl font-bold capitalize tracking-wide text-black">
-                {jdData.jobTitle || "Job Description"}
-              </h1>
-              <h2 className="text-2xl mt-3 font-semibold text-gray-800">
-                {jdData.companyName}
-              </h2>
-              <div className="flex justify-center gap-6 mt-4 text-base text-gray-700">
-                {jdData.location && <span>📍 {jdData.location}</span>}
-                {jdData.jobType && <span>💼 {jdData.jobType}</span>}
-                {jdData.experience && <span>⏳ {jdData.experience} Exp.</span>}
-              </div>
-            </div>
-            <div className="space-y-8">
-              {sections.map((section, i) => {
-                const hasData = section.fields.some(f => jdData[f]);
-                if (!hasData) return null;
-                return (
-                  <div key={i} className="mb-6">
-                    <h3 className="text-xl font-bold border-b border-gray-400 mb-4 pb-2 capitalize text-black">
-                      {section.title}
-                    </h3>
-                    <div className="pl-1">
-                      {section.fields.map((field) => 
-                        jdData[field] ? (
-                          <div key={field} className="mb-4">
-                            <span className="font-bold text-black block mb-1 text-sm uppercase tracking-wide">
-                              {field.replace(/([A-Z])/g, " $1").trim()}:
-                            </span>
-                            {/* --- Print template also shows currency for salary --- */}
-                            <p className="text-gray-900 text-base leading-relaxed whitespace-pre-wrap" style={{ display: "flex", alignItems: "center" }}>
-                              {field === "salary" ? (
-                                <>
-                                  {jdData[field]}
-                                  {jdData.location && (
-                                    <span
-                                      style={{
-                                        marginLeft: 8,
-                                        padding: "2px 8px",
-                                        borderRadius: "6px",
-                                        background: "#F2F6F9",
-                                        color: "#0F394D",
-                                        fontWeight: 600,
-                                        fontSize: "1rem",
-                                        border: "1px solid #e4e7ea"
-                                      }}
-                                    >
-                                      {getCurrencyForLocation(jdData.location)}
-                                    </span>
-                                  )}
-                                </>
-                              ) : (
-                                jdData[field]
-                              )}
-                            </p>
-                          </div>
-                        ) : null
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
           </div>
         </div>
       </div>

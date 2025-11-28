@@ -1,49 +1,66 @@
 import React, { useEffect, useState } from "react";
-import { useLocation, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { API_BASE_URL } from "../config";
+import { Loader } from "lucide-react";
 
 const ViewJD = () => {
   const { id } = useParams();
-  const location = useLocation();
-  const [jd, setJd] = useState(location.state?.jdData || null);
-  const [loading, setLoading] = useState(!location.state?.jdData);
+  const [pdfUrl, setPdfUrl] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (jd) return;
-    const fetchJD = async () => {
+    if (!id) return;
+
+    let objectUrl = null;
+
+    const fetchPDF = async () => {
       try {
-        setLoading(true);
-        const res = await fetch(`${API_BASE_URL}/jobs/list/`);
-        if (!res.ok) throw new Error("Failed to fetch jobs");
-        const data = await res.json();
-        const list = Array.isArray(data.results) ? data.results : data;
-        const found = list.find((job) => job.id === id);
-        if (!found) throw new Error("Job not found");
-        setJd(found);
-      } catch (e) {
-        setError(e.message);
-      } finally {
-        setLoading(false);
+        const res = await fetch(`${API_BASE_URL}/jobs/view/${id}/`, {
+          credentials: "include",
+        });
+
+        if (!res.ok) throw new Error("Could not load document");
+
+        const blob = await res.blob();
+        objectUrl = window.URL.createObjectURL(blob);
+        setPdfUrl(objectUrl);
+      } catch (err) {
+        setError(err.message);
       }
     };
-    fetchJD();
-  }, [id, jd]);
 
-  if (loading) return <div style={{ padding: 32 }}>Loading JD...</div>;
-  if (error) return <div style={{ padding: 32, color: "red" }}>{error}</div>;
-  if (!jd) return <div style={{ padding: 32 }}>No JD data found.</div>;
+    fetchPDF();
+
+    return () => {
+      if (objectUrl) {
+        window.URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [id]);   // depend only on id
+
+  if (error) {
+    return (
+      <div className="flex h-screen items-center justify-center text-red-600 font-bold">
+        {error}
+      </div>
+    );
+  }
+
+  if (!pdfUrl) {
+    return (
+      <div className="flex h-screen items-center justify-center text-[#21B0BE]">
+        <Loader className="animate-spin mr-2" /> Loading Document...
+      </div>
+    );
+  }
 
   return (
-    <div style={{ padding: "32px" }}>
-      <h1 style={{ fontSize: 28, marginBottom: 16 }}>{jd.title || "Job Description"}</h1>
-      <p><strong>Department:</strong> {jd.department}</p>
-      <p><strong>Location:</strong> {jd.location}</p>
-      <p><strong>Type:</strong> {jd.type}</p>
-      <p><strong>Experience:</strong> {jd.experience}</p>
-      <p><strong>Salary:</strong> {jd.salary}</p>
-      {/* Add more fields as needed */}
-      <pre style={{ marginTop: 24, whiteSpace: "pre-wrap" }}>{JSON.stringify(jd, null, 2)}</pre>
+    <div className="h-screen w-full bg-[#E9F1F4] flex flex-col">
+      <iframe
+        src={pdfUrl}
+        className="w-full h-full border-none"
+        title="Job Description Viewer"
+      />
     </div>
   );
 };

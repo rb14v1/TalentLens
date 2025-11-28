@@ -63,7 +63,22 @@ urlpatterns = [
     path('jobs/list/', job_views.list_jobs, name='list_jobs'),
     path('jobs/save/', job_views.publish_jd, name='publish_jd'),
     path('jobs/delete/<str:job_id>/', job_views.delete_jd, name='delete_jd'),
-    path('jobs/status/<str:job_id>/', job_views.update_jd_status, name='update_jd_status'), 
+    path('jobs/status/<str:job_id>/', job_views.update_jd_status, name='update_jd_status'),
+
+    path('jobs/download/<str:job_id>/', job_views.download_jd, name='download_jd'),
+    path('jobs/view/<str:job_id>/', job_views.view_jd, name='view_jd'),
+    path('jobs/status/<str:job_id>/', job_views.update_jd_status, name='update_jd_status'),
+
+    path('jobs/details/<str:job_id>/', job_views.get_job_details, name='get_job_details'),
+    path('jobs/update/<str:job_id>/', job_views.update_job_details, name='update_job_details'),
+ 
+ 
+    # Add these lines in the urlpatterns list
+
+# ========== CONFIRMED MATCHES (Resume Selection) ==========
+path('confirmed-matches/save/', views.confirm_resume_matches, name='confirm_matches'),
+path('confirmed-matches/list/', views.get_confirmed_matches, name='get_confirmed_matches'),
+ 
 ]
  
  
