@@ -1,412 +1,330 @@
+# extract_data.py  (FINAL COMPLETE VERSION — with advanced dependency mapping)
+ 
 import fitz
 from docx import Document
 import re
 from typing import Dict, List
-import google.generativeai as genai
 import os
+import numpy as np
+from sklearn.neighbors import NearestNeighbors
+import logging
+import json
+import boto3
  
-# -----------------------------
-# Gemini setup
-# -----------------------------
-API_KEY = (
-    os.getenv("GENAI_API_KEY")
-    or os.getenv("GOOGLE_API_KEY")
-    or os.getenv("GEMINI_KEY")
-)
+from .llama3_service import invoke_llama3_model
  
-if API_KEY:
-    genai.configure(api_key=API_KEY)
-    model = genai.GenerativeModel("models/gemini-2.5-flash")
-else:
-    model = None
+logger = logging.getLogger(__name__)
  
+# ======================================================================
+#                           FILE EXTRACTOR
+# ======================================================================
  
-# -----------------------------------------------------------
-# Stronger text extraction with fallback
-# -----------------------------------------------------------
 def extract_file_content(file_obj) -> str:
-    file_type = file_obj.name.split(".")[-1].lower()
-    file_obj.seek(0)
+    file_type = (file_obj.name or "").split(".")[-1].lower()
+    try:
+        file_obj.seek(0)
+    except:
+        pass
  
-    # ---------- PDF Extraction ----------
     if file_type == "pdf":
         try:
             doc = fitz.open(stream=file_obj.read(), filetype="pdf")
             full_text = ""
- 
             for page in doc:
-                # Strongest text extraction available
-                text = page.get_text("text")
-                if text.strip():
-                    full_text += text + "\n"
- 
-            if full_text.strip():
-                return full_text
- 
-        except Exception as e:
-            print("⚠️ PDF extract failed:", e)
- 
-        # ---------- Optional OCR fallback ----------
-        try:
-            import pytesseract
-            from PIL import Image
- 
-            doc = fitz.open(stream=file_obj.read(), filetype="pdf")
-            ocr_text = ""
- 
-            for page in doc:
-                pix = page.get_pixmap()
-                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                ocr_text += pytesseract.image_to_string(img)
- 
-            return ocr_text
- 
-        except Exception as e:
-            print("⚠️ OCR fallback failed:", e)
+                txt = page.get_text("text")
+                if txt and txt.strip():
+                    full_text += txt + "\n"
+            return full_text.strip()
+        except Exception:
             return ""
  
-    # ---------- DOCX Extraction ----------
     elif file_type == "docx":
         try:
+            file_obj.seek(0)
             doc = Document(file_obj)
             return "\n".join(p.text for p in doc.paragraphs)
         except Exception:
             return ""
  
-    # ---------- TXT or fallback ----------
     else:
         try:
             file_obj.seek(0)
-            return file_obj.read().decode("utf-8", errors="ignore")
+            raw = file_obj.read()
+            if isinstance(raw, bytes):
+                return raw.decode("utf-8", errors="ignore")
+            return str(raw)
         except Exception:
             return ""
  
  
-# -----------------------------------------------------------
-# Skill cleaning helper (central)
-# -----------------------------------------------------------
-# This uses heuristic rules to keep likely technical skills and remove noise.
+# ======================================================================
+#                           SKILL CLEANING
+# ======================================================================
+ 
 STOPWORDS = {
-    # generic words that sometimes appear in resumes but aren't technical skills
-    "and",
-    "or",
-    "the",
-    "a",
-    "an",
-    "services",
-    "courses",
-    "certificate",
-    "certified",
-    "certification",
-    "science",
-    "team",
-    "teams",
-    "modern",
-    "cd",  # rarely a skill (exclude unless you want 'CD' as domain)
-    "resume",
-    "contact",
-    "email",
-    "phone",
-    "linkedin",
-    "address",
-    "date",
-    "dob",
-    "unknown",
-    "name",
-    "candidate",
-    "manager",
-    "junior",
-    "senior",
-    "lead",
-    # add more common non-skills as needed
+    "and","or","the","a","an","services","courses","certificate","certified",
+    "certification","science","team","teams","modern","cd","resume","contact",
+    "email","phone","linkedin","address","date","dob","unknown","name",
+    "candidate","manager","junior","senior","lead"
 }
  
-# Some short tokens are valid techs; keep a small allowlist for short ones
 SHORT_ALLOW = {"c#", "c++", "go", "r", "js", "sql", "bash", "html", "css", "ui", "ux", "aws"}
  
-# Pattern to detect dates like Jul-14-2022 or 2022/07/14 etc.
-DATE_RE = re.compile(
-    r"(\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b)|"  # 2022-07-14
-    r"(\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b)|"  # 14-07-2022 or 14/7/22
-    r"([A-Za-z]{3,9}\s*\-?\s*\d{1,2},?\s*\d{0,4})"  # Jul 14 2022, July-14-2022
-)
- 
-# A small list of commonly used technology keywords to help allow multiword terms.
-# This is intentionally small — add more as you see false negatives.
 TECH_HINTS = {
-    "javascript",
-    "java",
-    "python",
-    "react",
-    "angular",
-    "node",
-    "node.js",
-    "nodejs",
-    "redis",
-    "postgresql",
-    "mysql",
-    "mongodb",
-    "css",
-    "html",
-    "rest",
-    "json",
-    "graphql",
-    "docker",
-    "kubernetes",
-    "aws",
-    "azure",
-    "gcp",
-    "git",
-    "linux",
-    "typescript",
-    "c++",
-    "c#",
-    "go",
-    "flutter",
-    "dart",
-    "django",
-    "spring",
-    "express",
+    "javascript","java","python","react","angular","node","node.js","nodejs",
+    "redis","postgresql","mysql","mongodb","css","html","rest","json","graphql",
+    "docker","kubernetes","aws","azure","gcp","git","linux","typescript","c++",
+    "c#","go","flutter","dart","django","spring","express"
 }
  
 def normalize_token(tok: str) -> str:
     tok = tok.strip()
-    # remove surrounding punctuation
     tok = re.sub(r"^[\"'`]+|[\"'`]+$", "", tok)
-    # collapse multiple spaces
     tok = " ".join(tok.split())
     return tok
  
 def looks_like_tech(tok: str) -> bool:
-    """Heuristic checks whether token is a technology/skill."""
     if not tok:
         return False
- 
     low = tok.lower()
- 
-    # remove pure dates or tokens that match date patterns
-    if DATE_RE.search(tok):
-        return False
- 
-    # drop tokens that are obviously stopwords
-    if low in STOPWORDS:
-        return False
- 
-    # allow very common short tech tokens
-    if low in SHORT_ALLOW:
-        return True
- 
-    # allow tokens that contain typical tech characters (. , + # /)
-    if re.search(r"[\.#\+\/]", tok):
-        return True
- 
-    # allow tokens containing digits (e.g., python3, node14)
-    if re.search(r"\d", tok):
-        return True
- 
-    # allow multi-word tokens that include a tech hint (e.g., 'PostgreSQL', 'React Native')
-    for hint in TECH_HINTS:
-        if hint in low:
-            return True
- 
-    # allow tokens that are alphabetic and reasonably long and not English stopwords
-    if re.match(r"^[A-Za-z][A-Za-z\-\s]+[A-Za-z]$", tok) and len(low) >= 3:
-        # filter out plain English words that are generic (some of these are in STOPWORDS)
-        if low in STOPWORDS:
-            return False
-        # also reject single generic adjectives
-        generic_adjectives = {"modern", "scalable", "robust", "experienced"}
-        if low in generic_adjectives:
-            return False
-        return True
- 
+    if low in STOPWORDS: return False
+    if low in SHORT_ALLOW: return True
+    if any(h in low for h in TECH_HINTS): return True
+    if re.search(r"[\.#\+\/]", tok): return True
+    if re.search(r"\d", tok): return True
     return False
  
 def clean_skills(raw_skills: List[str]) -> List[str]:
-    """Take raw skill candidates and return a cleaned, deduped list of likely technical skills."""
     cleaned = []
     seen = set()
+ 
     for s in raw_skills:
         if not s or not isinstance(s, str):
             continue
+ 
         s = normalize_token(s)
-        # If comma-separated items accidentally passed in a single entry, split them
         parts = [p.strip() for p in re.split(r"[;,/]| and | & ", s) if p.strip()]
+ 
         for part in parts:
-            part_norm = part.strip()
-            # remove stray bullets or numbering
-            part_norm = re.sub(r"^[\-\•\d\.\)\s]+", "", part_norm)
-            if not part_norm:
-                continue
-            if looks_like_tech(part_norm):
-                # standardize common forms (e.g., Node.js -> Node.js)
-                # but keep original capitalization where useful
-                key = part_norm.lower()
+            part = re.sub(r"^[\-\•\d\.\)\s]+", "", part.strip())
+            if part and looks_like_tech(part):
+                key = part.lower()
                 if key not in seen:
-                    cleaned.append(part_norm)
+                    cleaned.append(part)
                     seen.add(key)
+ 
     return cleaned
  
  
-# -----------------------------------------------------------
-# Gemini skill extraction
-# -----------------------------------------------------------
-def extract_skills_with_gemini(resume_text: str) -> list:
-    if not resume_text:
-        return []
+# ======================================================================
+#                ADVANCED DEPENDENCY SKILL GRAPH
+# ======================================================================
  
-    if model is None:
-        # fallback: use safer tokenization (words and common multiword tech terms)
-        tokens = re.findall(r"[A-Za-z0-9\+\#\-\_\.]{2,}(?:\s+[A-Za-z0-9\+\#\-\_\.]{2,})?", resume_text)
-        # take top unique tokens but clean with our filter
-        tokens = list(dict.fromkeys(tokens))  # preserve order, dedupe
-        return clean_skills(tokens)[:40]
+ADVANCED_SKILL_GRAPH = {
+    # ENGINEERING / IT
+    "python": {"django":3,"flask":3,"fastapi":3,"numpy":3,"pandas":3,"pytorch":3,"tensorflow":3,"backend":2},
+    "django": {"python":3,"backend":2,"rest":2,"web":1},
+    "flask": {"python":3,"backend":2},
+    "fastapi": {"python":3,"backend":2},
+    "numpy": {"python":3},
+    "pandas": {"python":3},
  
+    "javascript": {"react":3,"angular":3,"node.js":3,"typescript":3,"frontend":2},
+    "react": {"javascript":3,"frontend":2},
+    "angular": {"javascript":3},
+    "node.js": {"javascript":3,"backend":2},
+    "typescript": {"javascript":3},
+ 
+    "java": {"spring":3,"spring boot":3,"backend":2},
+    "spring": {"java":3},
+    "spring boot": {"java":3},
+ 
+    "sql": {"mysql":3,"postgresql":3,"database":3},
+    "mysql": {"sql":3,"database":3},
+    "postgresql": {"sql":3,"database":3},
+    "database": {"sql":3},
+ 
+    "linux": {
+        "ubuntu":3,"redhat":3,"bash":3,"shell":3,"docker":2,"kubernetes":2,
+        "ssh":2,"devops":2,"sysadmin":2
+    },
+    "docker": {"linux":2,"devops":3},
+    "kubernetes": {"linux":2,"devops":3},
+ 
+    "aws": {"cloud":3,"lambda":2,"ec2":2,"s3":2,"devops":2},
+    "azure": {"cloud":3},
+    "gcp": {"cloud":3},
+    "cloud": {"aws":3,"azure":3,"gcp":3},
+ 
+    # HR
+    "hr": {"recruitment":3,"onboarding":2,"payroll":2},
+    "recruitment": {"sourcing":3,"interviewing":3,"hiring":3},
+ 
+    # SALES / MARKETING
+    "sales": {"crm":3,"lead generation":3,"cold calling":2},
+    "crm": {"salesforce":3,"hubspot":3},
+    "marketing": {"seo":3,"campaigns":2},
+ 
+    # FINANCE
+    "finance":{"budgeting":3,"forecasting":3,"audit":2},
+    "accounting":{"tally":3,"bookkeeping":3,"audit":2},
+}
+ 
+def build_bidirectional_graph(graph):
+    final = {}
+    for skill, edges in graph.items():
+        s = skill.lower()
+        final.setdefault(s, {})
+        for related, weight in edges.items():
+            r = related.lower()
+            final[s][r] = weight
+            final.setdefault(r, {})
+            final[r][s] = weight
+    return final
+ 
+FULL_SKILL_GRAPH = build_bidirectional_graph(ADVANCED_SKILL_GRAPH)
+ 
+ 
+def expand_skill(skill: str, max_depth=2) -> List[str]:
+    """Return recursive related skill expansion."""
+    skill = skill.lower()
+    visited = set([skill])
+    queue = [(skill, 0)]
+ 
+    while queue:
+        current, depth = queue.pop(0)
+        if depth >= max_depth:
+            continue
+ 
+        if current in FULL_SKILL_GRAPH:
+            for nxt in FULL_SKILL_GRAPH[current].keys():
+                if nxt not in visited:
+                    visited.add(nxt)
+                    queue.append((nxt, depth + 1))
+ 
+    return list(visited)
+ 
+ 
+# ======================================================================
+#                STRICT SKILL EXTRACTION (LLaMA3)
+# ======================================================================
+ 
+def extract_skills_with_llama3(text: str) -> List[str]:
     try:
         prompt = f"""
-        Extract only technical skills from this resume text.
-        Include: languages, frameworks, cloud, databases, devops, tools.
-        Exclude: soft skills, company names, job titles, education.
+Extract ONLY technical skills from this resume.
  
-        Resume:
-        {resume_text[:2500]}
+STRICT RULES:
+- comma-separated ONLY
+- no sentences
+- no soft skills
+- max 3 words per skill
  
-        Output ONLY comma-separated skills. No explanations.
-        """
-        response = model.generate_content(prompt)
-        skills_text = response.text.strip()
+Resume:
+{text[:4000]}
+"""
+        resp = invoke_llama3_model(prompt)
+        if not resp:
+            return []
  
-        # parse the comma-separated output and clean it
-        skills = [s.strip() for s in re.split(r",|\n|;", skills_text) if s.strip()]
-        skills = clean_skills(skills)
-        return skills[:40] if skills else []
+        raw_items = [x.strip() for x in re.split(r",|;|\n", resp) if x.strip()]
+        return [s for s in raw_items if looks_like_tech(s)][:80]
  
-    except Exception as e:
-        print("⚠️ Gemini skill extraction failed:", e)
-        # fallback to safer tokenization if Gemini fails
-        tokens = re.findall(r"[A-Za-z0-9\+\#\-\_\.]{2,}(?:\s+[A-Za-z0-9\+\#\-\_\.]{2,})?", resume_text)
-        tokens = list(dict.fromkeys(tokens))
-        return clean_skills(tokens)[:40]
+    except Exception:
+        return []
  
  
-# -----------------------------------------------------------
-# CPD Level Calculation
-# -----------------------------------------------------------
+# ======================================================================
+#                  EXPERIENCE → CPD LEVEL
+# ======================================================================
+ 
 def calculate_cpd_level(years: int) -> int:
-    if years <= 1:
-        return 1
-    elif years <= 3:
-        return 2
-    elif years <= 5:
-        return 3
-    elif years <= 8:
-        return 4
-    elif years <= 12:
-        return 5
+    if years <= 1: return 1
+    if years <= 3: return 2
+    if years <= 5: return 3
+    if years <= 8: return 4
+    if years <= 12: return 5
     return 6
  
  
-# -----------------------------------------------------------
-# Field Extraction Master Function
-# -----------------------------------------------------------
-def extract_fields(file_obj) -> Dict:
-    text = extract_file_content(file_obj)
+# ======================================================================
+#                      MAIN EXTRACTION FUNCTION
+# ======================================================================
  
-    # ---------------------------------
-    # NAME extraction (improved)
-    # ---------------------------------
-    candidate_name = None
+def extract_fields(file_obj, build_index_flag=True) -> Dict:
+    text = extract_file_content(file_obj) or ""
  
-    name_patterns = [
-        r"Name:\s*([A-Za-z][A-Za-z\s]+?)(?=\s+(?:Email|Phone|Contact|$))",
-        r"Candidate:\s*([A-Za-z][A-Za-z\s]+?)(?=\s+(?:Email|Phone|Contact|$))",
-        r"Full Name:\s*([A-Za-z][A-Za-z\s]+)",
-        r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)",  # First line full name
-    ]
+    raw_filename = os.path.basename(file_obj.name or "")
+    file_name = raw_filename
+    readable_file_name = raw_filename
  
-    for pattern in name_patterns:
-        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
-        if match:
-            extracted = match.group(1).strip()
-            extracted = re.sub(r"\S+@\S+", "", extracted)
-            extracted = " ".join(extracted.split())
+    # NAME
+    candidate_name = "Unknown"
+    email_match_first = re.search(r"[\w\.-]+@[\w\.-]+", text)
+    email_local_part = ""
+    if email_match_first:
+        email_local_part = email_match_first.group(0).split("@")[0]
  
-            if len(extracted.split()) >= 2 and len(extracted) < 80:
-                candidate_name = extracted
-                break
+    try:
+        name_prompt = f"""
+Extract ONLY the candidate name (1–2 words max). No titles.
  
-    # Backup name using email line
-    if not candidate_name:
-        email_match = re.search(r"[\w\.-]+@[\w\.-]+", text)
-        if email_match:
-            lines = text.split("\n")
-            idx = next(
-                (i for i, line in enumerate(lines) if email_match.group(0) in line),
-                0,
-            )
-            for line in lines[max(0, idx - 3) : idx + 1]:
-                nm = re.search(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)", line)
-                if nm:
-                    candidate_name = nm.group(1).strip()
-                    break
+{text[:1500]}
+"""
+        raw = invoke_llama3_model(name_prompt) or ""
+        cleaned = re.sub(r"[^A-Za-z\s]", "", raw).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        parts = cleaned.split()
  
-    if not candidate_name:
-        candidate_name = "Unknown"
+        if 1 <= len(parts) <= 2:
+            candidate_name = cleaned
  
-    # ---------------------------------
-    # EMAIL extraction
-    # ---------------------------------
-    email_match = re.search(r"[\w\.-]+@[\w\.-]+", text)
-    email = email_match.group(0).strip().lower() if email_match else ""
+    except:
+        pass
  
-    # ---------------------------------
-    # EXPERIENCE extraction
-    # ---------------------------------
-    experience_years = 0
-    exp_match = re.search(r"(\d{1,2})\s*(?:years?|yrs?)", text, re.IGNORECASE)
-    if exp_match:
+    if candidate_name == "Unknown" and email_local_part:
+        parts = re.split(r"[._\-]", email_local_part)
+        parts = [p.capitalize() for p in parts if p.isalpha()]
+        if parts:
+            candidate_name = " ".join(parts[:2])
+ 
+    # EMAIL
+    email = ""
+    m2 = re.search(r"[\w\.-]+@[\w\.-]+", text)
+    if m2:
+        email = m2.group(0).lower()
+ 
+    # EXPERIENCE
+    exp = 0
+    m3 = re.search(r"(\d{1,2})\s*(years|year|yrs?)", text, re.I)
+    if m3:
         try:
-            experience_years = int(exp_match.group(1))
+            exp = int(m3.group(1))
         except:
-            experience_years = 0
+            pass
  
-    # ---------------------------------
-    # CPD Level
-    # ---------------------------------
-    cpd_level = None
-    cpd_patterns = [
-        r"CPD\s*Level[:\s]+(\d)",
-        r"CPD[:\s]+(\d)",
-        r"Level[:\s]+(\d)\s+CPD",
-    ]
+    cpd_level = calculate_cpd_level(exp)
  
-    for pattern in cpd_patterns:
-        m = re.search(pattern, text, re.IGNORECASE)
-        if m:
-            try:
-                extracted = int(m.group(1))
-                if 1 <= extracted <= 6:
-                    cpd_level = extracted
-                    break
-            except:
-                pass
+    # SKILLS
+    raw_skills = extract_skills_with_llama3(text)
+    cleaned = clean_skills(raw_skills)
  
-    if cpd_level is None:
-        cpd_level = calculate_cpd_level(experience_years)
+    expanded = set(cleaned)
+    for sk in cleaned:
+        expanded.update(expand_skill(sk))
  
-    # ---------------------------------
-    # SKILLS extraction
-    # ---------------------------------
-    skills = extract_skills_with_gemini(text)
+    normalized = sorted({x.lower() for x in expanded})
  
-    # ---------------------------------
-    # FINAL RETURN STRUCTURE
-    # ---------------------------------
     return {
         "candidate_name": candidate_name,
         "email": email,
-        "experience_years": experience_years,
+        "experience_years": exp,
         "cpd_level": cpd_level,
-        "skills": skills,
-        "resume_text": text or "",
+        "skills": normalized,
+        "display_skills": list(expanded),
+        "resume_text": text,
+        "file_name": file_name,
+        "readable_file_name": readable_file_name
     }
+ 
+ 

@@ -40,6 +40,7 @@ const Description = ({ setJdData, jdData }) => {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
  
   const [formData, setFormData] = useState(
+    location.state?.jdData ||
     jdData || {
       jobTitle: "",
       department: "",

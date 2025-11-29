@@ -12,7 +12,6 @@ import RecruiterSidebar from "../components/sidebar/RecruiterSidebar";
 function Retrieve() {
   const navigate = useNavigate();
  
-  // ⭐ ADDED FOR ADAPTIVE LAYOUT
   const [collapsed, setCollapsed] = useState(false);
  
   const [department, setDepartment] = useState("");
@@ -20,12 +19,35 @@ function Retrieve() {
   const [searchTerm, setSearchTerm] = useState("");
   const [resumes, setResumes] = useState([]);
   const [selectedResume, setSelectedResume] = useState(null);
+  const [matchedKeywords, setMatchedKeywords] = useState([]);  // ⭐ NEW STATE
  
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
  
   const getPdfProxyUrl = (fileUrl) =>
     `${API_BASE_URL}/proxy_resume/?file_url=${encodeURIComponent(fileUrl)}`;
+ 
+  // ⭐ NEW FUNCTION: Fetch Matched Keywords
+  const fetchMatchedKeywords = async (resume) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/match_keywords/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resume_skills: resume.skills || [],
+          search_text: searchTerm || ""
+        }),
+      });
+ 
+      if (!response.ok) throw new Error("Keyword match failed");
+ 
+      const data = await response.json();
+      setMatchedKeywords(data.matched_keywords || []);
+    } catch (err) {
+      console.error("Keyword match error:", err);
+      setMatchedKeywords([]);
+    }
+  };
  
   const handleSearch = async () => {
     setError(null);
@@ -64,9 +86,9 @@ function Retrieve() {
           candidate_name: payload.candidate_name || payload.name || "Unknown",
           role: payload.role || payload.designation || "",
           department:
-            payload.department || payload.dept || payload.s3_url?.includes("/resumes/")
-              ? "Unknown"
-              : "",
+            payload.department ||
+            payload.dept ||
+            (payload.s3_url?.includes("/resumes/") ? "Unknown" : ""),
           cpdLevel: payload.cpd_level
             ? `Level ${payload.cpd_level}`
             : payload.cpdLevel || "Unknown",
@@ -78,7 +100,7 @@ function Retrieve() {
               ? `${payload.experience_years} years`
               : payload.experience || "",
           matchScore: Number(r.score) || 0,
-          matched_keywords: r.matched_keywords || [],
+          matched_keywords: [], // replaced by API
           s3_url: payload.s3_url || "",
           file_name:
             payload.file_name ||
@@ -119,12 +141,22 @@ function Retrieve() {
       return;
     }
  
-    const viewUrl = `${API_BASE_URL}/view_resume/?file_name=${encodeURIComponent(fileName)}`;
+    const viewUrl = `${API_BASE_URL}/view_resume/?file_name=${encodeURIComponent(
+      fileName
+    )}`;
     window.open(viewUrl, "_blank", "noopener,noreferrer");
   };
  
-  const openModal = (resume) => setSelectedResume(resume);
-  const closeModal = () => setSelectedResume(null);
+  // ⭐ UPDATED: When modal opens, fetch matched keywords
+  const openModal = (resume) => {
+    setSelectedResume(resume);
+    fetchMatchedKeywords(resume);   // <--- NEW LINE
+  };
+ 
+  const closeModal = () => {
+    setSelectedResume(null);
+    setMatchedKeywords([]); // clear keywords
+  };
  
   const handleDownload = (resume) => {
     const url = resume.s3_url || resume.raw_payload?.s3_url;
@@ -139,16 +171,13 @@ function Retrieve() {
   return (
     <div className="min-h-screen flex bg-gradient-to-br from-[#F8FAFC] via-[#E9F1F4] to-[#E4EEF4] relative">
  
-      {/* ⭐ MAKE SIDEBAR ADAPTIVE */}
       <RecruiterSidebar active="Retrieve" setCollapsed={setCollapsed} />
  
-      {/* ⭐ MAIN CONTENT — ADAPTIVE MARGIN */}
       <main
         className={`flex-1 p-10 relative overflow-y-auto transition-all duration-300 ${
           collapsed ? "ml-20" : "ml-72"
         }`}
       >
- 
         {/* BACK BUTTON */}
         <button
           onClick={() => navigate("/")}
@@ -157,21 +186,23 @@ function Retrieve() {
           Back
         </button>
  
-        {/* Background Pattern */}
-        <div className="absolute inset-0 bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')] opacity-10 pointer-events-none"></div>
- 
+        {/* Content */}
         <div className="relative z-10 max-w-6xl mx-auto">
-          <h1 className="text-3xl font-bold text-center text-[#0F394D] mb-6">Retrieve</h1>
+          <h1 className="text-3xl font-bold text-center text-[#0F394D] mb-6">
+            Retrieve
+          </h1>
  
-          {/* SEARCH FILTERS */}
+          {/* Filters */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <div>
-              <label className="block text-gray-700 mb-1 font-medium">Search</label>
+              <label className="block text-gray-700 mb-1 font-medium">
+                Search
+              </label>
               <div className="flex items-center border border-gray-300 rounded-lg p-2 bg-white/70 backdrop-blur">
                 <Search className="text-gray-400 mr-2" size={18} />
                 <input
                   type="text"
-                  placeholder="Search Resume (skills, name, role...)"
+                  placeholder="Search Resume..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full bg-transparent outline-none"
@@ -180,7 +211,9 @@ function Retrieve() {
             </div>
  
             <div>
-              <label className="block text-gray-700 mb-1 font-medium">CPD Level</label>
+              <label className="block text-gray-700 mb-1 font-medium">
+                CPD Level
+              </label>
               <select
                 value={cpdLevel}
                 onChange={(e) => setCpdLevel(e.target.value)}
@@ -197,15 +230,15 @@ function Retrieve() {
             </div>
           </div>
  
-          {/* BUTTONS */}
+          {/* Search + Clear */}
           <div className="flex gap-4 mb-8">
             <button
               onClick={handleSearch}
               className="bg-[#0F394D] text-white px-6 py-2 rounded-lg hover:bg-[#15556b] transition flex items-center gap-2"
-              disabled={loading}
             >
-              <Search size={16} /> {loading ? "Searching..." : "Search"}
+              <Search size={16} /> Search
             </button>
+ 
             <button
               onClick={handleClear}
               className="bg-gray-200 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-300 flex items-center transition"
@@ -214,22 +247,15 @@ function Retrieve() {
             </button>
           </div>
  
-          {/* ERROR */}
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 text-red-700 border border-red-100 rounded">
-              {error}
-            </div>
-          )}
- 
-          {/* RESUME CARDS */}
+          {/* Results */}
           {loading ? (
-            <div className="text-center text-gray-500">Searching resumes…</div>
-          ) : resumes.length > 0 ? (
+            <p className="text-center text-gray-500">Searching resumes…</p>
+          ) : resumes.length ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {resumes.map((resume) => (
                 <div
                   key={resume.id}
-                  className="bg-white/80 backdrop-blur-md border border-gray-100 shadow-md rounded-2xl p-5 hover:shadow-lg transition"
+                  className="bg-white/80 border shadow-md rounded-2xl p-5 hover:shadow-lg transition"
                 >
                   <div className="flex items-center mb-3">
                     <div className="bg-[#21B0BE]/20 p-2 rounded-full mr-3">
@@ -248,20 +274,18 @@ function Retrieve() {
                     {resume.cpdLevel}
                   </p>
  
-                  <div className="flex gap-2 mb-4">
-                    <button
-                      onClick={() => openModal(resume)}
-                      className="flex-1 w-full bg-[#0F394D] text-white py-2 rounded-lg hover:bg-[#15556b] transition"
-                    >
-                      View Resume
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => openModal(resume)}
+                    className="w-full bg-[#0F394D] text-white py-2 rounded-lg hover:bg-[#15556b] transition"
+                  >
+                    View Resume
+                  </button>
                 </div>
               ))}
             </div>
           ) : (
             <p className="text-gray-500 text-center mt-10">
-              No resumes to display. Use filters and click <b>Search</b>.
+              No resumes to display.
             </p>
           )}
         </div>
@@ -291,7 +315,7 @@ function Retrieve() {
               </div>
             </div>
  
-            {/* Modal Info */}
+            {/* INFO */}
             <div className="text-sm text-gray-700 space-y-1 mb-4">
               <p>
                 <span className="font-medium">CPD Level:</span>{" "}
@@ -321,7 +345,7 @@ function Retrieve() {
                 </div>
               </div>
               <p className="text-sm text-gray-600 mt-1">
-                {selectedResume.matchScore}% match with job description
+                {selectedResume.matchScore}% match
               </p>
             </div>
  
@@ -338,7 +362,7 @@ function Retrieve() {
               <p className="font-medium text-gray-700 mb-2">Skills:</p>
               <div className="flex flex-wrap gap-2">
                 {(selectedResume.skills || []).length > 0 ? (
-                  selectedResume.skills.slice(0, 30).map((skill, i) => (
+                  selectedResume.skills.map((skill, i) => (
                     <span
                       key={i}
                       className="bg-[#21B0BE]/10 text-[#0F394D] px-3 py-1 rounded-full text-sm"
@@ -352,12 +376,12 @@ function Retrieve() {
               </div>
             </div>
  
-            {/* Keywords */}
+            {/* ⭐ MATCHED KEYWORDS (API-BASED) */}
             <div className="mb-6">
               <p className="font-medium text-gray-700 mb-2">Matched Keywords:</p>
               <div className="flex flex-wrap gap-2">
-                {(selectedResume.matched_keywords || []).length > 0 ? (
-                  selectedResume.matched_keywords.map((kw, i) => (
+                {matchedKeywords.length > 0 ? (
+                  matchedKeywords.map((kw, i) => (
                     <span
                       key={i}
                       className="bg-[#0F394D]/10 text-[#0F394D] px-3 py-1 rounded-full text-sm font-medium"
@@ -371,7 +395,7 @@ function Retrieve() {
               </div>
             </div>
  
-            {/* Buttons */}
+            {/* BUTTONS */}
             <div className="flex gap-3">
               <button
                 onClick={() => openFullView(selectedResume)}

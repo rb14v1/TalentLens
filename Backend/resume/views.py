@@ -39,7 +39,7 @@ from qdrant_client.http import models
 from .services.qdrant_service import search_collection
 from .models import ConfirmedMatch
 from django.db import IntegrityError
-
+from resume.services.keyword_match_service import KeywordMatchService
 
 
 
@@ -326,114 +326,73 @@ SYNONYM_MAP = {
 # Search Resume (Fixed: Aligned with Dashboard filters)
 # ============================================================
 class ResumeSearchView(APIView):
+ 
     def post(self, request, *args, **kwargs):
-        query = request.data.get('query', '')
-        filters = request.data.get('filters', {})
-
+        query = request.data.get("query", "")
+        filters = request.data.get("filters", {})
+ 
         if not query:
-            return Response({'error': 'A search query is required'}, status=status.HTTP_400_BAD_REQUEST)
-
+            return Response({"error": "A search query is required"}, status=400)
+ 
+        # ------------------------------------------------------------
+        # 1) Extract keywords + Dependency Expansion (VERY IMPORTANT)
+        # ------------------------------------------------------------
+        raw_keywords = KeywordMatchService.extract_keywords(query)
+        expanded_keywords = KeywordMatchService.expand_dependencies(raw_keywords)
+        print("\n🔍 Search expanded keywords =", expanded_keywords)
+ 
+        # ------------------------------------------------------------
+        # 2) Get embedding for semantic search
+        # ------------------------------------------------------------
         try:
             query_embedding = get_text_embedding(query)
         except Exception as e:
-            return Response({'error': f'Embedding failed: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # Build Qdrant Filter
-        query_filter = None
-        must_conditions = []
-
-        exp_range = filters.get("experience", "")
-        cpd_level = filters.get("cpd_level", "")
-
-        # 1. Handle CPD Level
-        if cpd_level and cpd_level not in ["", "Any"]:
-            try:
-                cpd_int = int(cpd_level)
-                must_conditions.append(models.FieldCondition(key="cpd_level", match=models.MatchValue(value=cpd_int)))
-            except Exception:
-                pass
-
-        # 2. Handle Experience Range (Fixed to match Dashboard keys)
-        if exp_range and exp_range != "Any":
-            # Dashboard sends keys like "0-2 yrs", so we check for those
-            if exp_range in ["0-2", "0-2 yrs"]:
-                must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=0, lte=2)))
-            elif exp_range in ["3-5", "3-5 yrs"]:
-                must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=3, lte=5)))
-            elif exp_range in ["6-10", "6-10 yrs"]:
-                must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=6, lte=10)))
-            elif exp_range in ["10+", "10+ yrs"]:
-                # Consistent with analytics: "10+" means 11 and above (since 10 is in 6-10)
-                must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=11)))
-
-        if must_conditions:
-            query_filter = models.Filter(must=must_conditions)
-
+            return Response({"error": f"Embedding failed: {e}"}, status=500)
+ 
+        # ------------------------------------------------------------
+        # 3) Search Qdrant by similarity first
+        # ------------------------------------------------------------
         try:
-            all_results = search_collection(query_embedding, query_filter=query_filter, limit=1000)
+            results = search_collection(query_embedding, limit=300)
         except Exception as e:
-            return Response({'error': f'Qdrant primary search failed: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # Helper to manually filter if Qdrant filter missed (double-check)
-        def match_exp(exp_value, exp_range):
-            if not exp_range or exp_range == "Any":
-                return True
-            if exp_range in ["0-2", "0-2 yrs"]:
-                return 0 <= exp_value <= 2
-            elif exp_range in ["3-5", "3-5 yrs"]:
-                return 3 <= exp_value <= 5
-            elif exp_range in ["6-10", "6-10 yrs"]:
-                return 6 <= exp_value <= 10
-            elif exp_range in ["10+", "10+ yrs"]:
-                return exp_value >= 11 # Consistent with chart logic
-            return True
-
-        filtered_resumes = []
-        for match in all_results:
-            try:
-                payload = match.payload or {}
-                # Get experience (handle potential None/Strings)
-                exp_val = int(payload.get("experience_years", 0) or 0)
-                cpd_val = int(payload.get("cpd_level", 0) or 0)
-                
-                # Check conditions manually as a fallback/confirmation
-                exp_match = match_exp(exp_val, exp_range)
-                
-                cpd_req = int(cpd_level) if (cpd_level and cpd_level != "Any") else None
-                cpd_match = (cpd_req is None) or (cpd_val == cpd_req)
-                
-                if exp_match and cpd_match:
-                    filtered_resumes.append(match)
-            except:
-                continue
-
-        # Build results
-        query_keywords = set(query.lower().split())
-        words_to_highlight = set(query_keywords)
-        for kw in query_keywords:
-            for key in SYNONYM_MAP:
-                if key in kw or kw in key:
-                    words_to_highlight.update(SYNONYM_MAP.get(key, []))
-
-        results = []
-        for match in filtered_resumes:
+            return Response({"error": f"Qdrant search error: {e}"}, status=500)
+ 
+        final_results = []
+ 
+        # ------------------------------------------------------------
+        # 4) Loop resumes and do keyword scoring
+        # ------------------------------------------------------------
+        for match in results:
             payload = match.payload or {}
-            resume_content = (payload.get('resume_text') or '').lower()
-            matched_keywords = [kw for kw in words_to_highlight if kw in resume_content]
-            
-            base_score = match.score or 0
-            keyword_boost = len(matched_keywords) * 0.05 # Small boost
-            final_score = base_score + keyword_boost
-            
-            results.append({
-                'id': match.id,
-                'score': final_score,
-                'data': dict(payload),
-                'matched_keywords': matched_keywords
+ 
+            resume_skills = payload.get("skills", [])
+            if isinstance(resume_skills, str):
+                resume_skills = [resume_skills]
+ 
+            # ---- SMART KEYWORD MATCH PIPELINE ----
+            matched_keywords = KeywordMatchService.get_matched_keywords(
+                resume_skills, query
+            )
+ 
+            # ---- Boost score using matched keyword count ----
+            base_score = match.score
+            boost = len(matched_keywords) * 0.08  # keyword influence
+            final_score = round(base_score + boost, 4)
+ 
+            # Build result object
+            final_results.append({
+                "id": match.id,
+                "score": final_score,
+                "matched_keywords": matched_keywords,
+                "data": payload
             })
+ 
+        # Sort by boosted score
+        final_results.sort(key=lambda x: x["score"], reverse=True)
+ 
+        return Response({"results": final_results}, status=200)
+ 
 
-        results.sort(key=lambda r: r['score'], reverse=True)
-        return Response({"results": results, "highlight_words": list(words_to_highlight)}, status=status.HTTP_200_OK)
 
 # -----------------------------
 # List resumes (Qdrant)
@@ -1478,4 +1437,32 @@ def get_confirmed_matches(request):
 
     except Exception as e:
         print(f"❌ Error fetching confirmed matches: {e}")
+        return Response({"error": str(e)}, status=500)
+    
+@api_view(["POST"])
+def match_resume_keywords(request):
+    """
+    POST /api/resume/match_keywords/
+    {
+        "resume_skills": [...],
+        "search_text": "python aws developer"
+    }
+    """
+    try:
+        resume_skills = request.data.get("resume_skills", [])
+        search_text = request.data.get("search_text", "")
+ 
+        if not search_text:
+            return Response({"error": "search_text is required"}, status=400)
+ 
+        matched_keywords = KeywordMatchService.get_matched_keywords(
+            resume_skills, search_text
+        )
+ 
+        return Response({
+            "matched_keywords": matched_keywords,
+            "count": len(matched_keywords)
+        }, status=200)
+ 
+    except Exception as e:
         return Response({"error": str(e)}, status=500)

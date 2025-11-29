@@ -78,6 +78,7 @@ urlpatterns = [
 # ========== CONFIRMED MATCHES (Resume Selection) ==========
 path('confirmed-matches/save/', views.confirm_resume_matches, name='confirm_matches'),
 path('confirmed-matches/list/', views.get_confirmed_matches, name='get_confirmed_matches'),
+path('match_keywords/', views.match_resume_keywords, name='match_resume_keywords'),
  
 ]
  
