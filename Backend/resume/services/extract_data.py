@@ -326,5 +326,3 @@ Extract ONLY the candidate name (1–2 words max). No titles.
         "file_name": file_name,
         "readable_file_name": readable_file_name
     }
- 
- 

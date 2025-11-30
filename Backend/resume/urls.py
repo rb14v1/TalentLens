@@ -49,6 +49,7 @@ urlpatterns = [
     path('jd/drafts/<str:email>/', job_views.get_jd_drafts, name='get_jd_drafts'),
     path('jd/draft/delete/<int:draft_id>/', job_views.delete_jd_draft, name='delete_jd_draft'),
     path('jd/draft/publish/<int:draft_id>/', job_views.publish_jd, name='publish_jd'),
+    path('jobs/view/<str:job_id>/', job_views.view_jd, name='view_jd'),
     
 
 

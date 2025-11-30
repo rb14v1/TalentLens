@@ -40,6 +40,7 @@ from .services.qdrant_service import search_collection
 from .models import ConfirmedMatch
 from django.db import IntegrityError
 from resume.services.keyword_match_service import KeywordMatchService
+from qdrant_client.http.models import MatchAny
 
 
 
@@ -325,72 +326,243 @@ SYNONYM_MAP = {
 # ============================================================
 # Search Resume (Fixed: Aligned with Dashboard filters)
 # ============================================================
+# ============================================================
+
+# Resume Search + Filtering (ATS scoring + CPD + experience)
+
+# ============================================================
+
 class ResumeSearchView(APIView):
  
     def post(self, request, *args, **kwargs):
+
         query = request.data.get("query", "")
-        filters = request.data.get("filters", {})
+
+        filters = request.data.get("filters", {}) or {}
  
         if not query:
-            return Response({"error": "A search query is required"}, status=400)
+
+            return Response({"error": "Search query required"}, status=400)
+ 
+        # Extract filters
+
+        filter_cpd = filters.get("cpd_level")
+
+        filter_exp = filters.get("experience_years")
+
+        filter_skills = filters.get("skills", [])
  
         # ------------------------------------------------------------
-        # 1) Extract keywords + Dependency Expansion (VERY IMPORTANT)
+
+        # 1) Extract raw keywords + dependency-expanded search set
+
         # ------------------------------------------------------------
+
         raw_keywords = KeywordMatchService.extract_keywords(query)
+
         expanded_keywords = KeywordMatchService.expand_dependencies(raw_keywords)
-        print("\n🔍 Search expanded keywords =", expanded_keywords)
+ 
+        print("\n🔍 Expanded search keywords:", expanded_keywords)
  
         # ------------------------------------------------------------
-        # 2) Get embedding for semantic search
+
+        # 2) SEMANTIC EMBEDDING
+
         # ------------------------------------------------------------
+
         try:
+
             query_embedding = get_text_embedding(query)
+
         except Exception as e:
+
             return Response({"error": f"Embedding failed: {e}"}, status=500)
  
         # ------------------------------------------------------------
-        # 3) Search Qdrant by similarity first
+
+        # 3) QDRANT SEARCH
+
         # ------------------------------------------------------------
+
         try:
-            results = search_collection(query_embedding, limit=300)
+
+            results = search_collection(query_embedding, limit=200)
+
         except Exception as e:
+
             return Response({"error": f"Qdrant search error: {e}"}, status=500)
  
         final_results = []
  
         # ------------------------------------------------------------
-        # 4) Loop resumes and do keyword scoring
+
+        # 4) ATS MATCHING + FILTERS
+
         # ------------------------------------------------------------
+
+        import math
+ 
         for match in results:
+
             payload = match.payload or {}
  
+            # ==============================================
+
+            # ✔ FILTER 1: CPD LEVEL
+
+            # ==============================================
+
+            if filter_cpd:
+
+                resume_cpd = payload.get("cpd_level")
+
+                if not resume_cpd or str(resume_cpd) != str(filter_cpd):
+
+                    continue  # skip this candidate
+ 
+            # ==============================================
+
+            # ✔ FILTER 2: EXPERIENCE
+
+            # ==============================================
+
+            if filter_exp:
+
+                try:
+
+                    exp_years = int(payload.get("experience_years", 0))
+
+                except:
+
+                    exp_years = 0
+ 
+                if exp_years < int(filter_exp):
+
+                    continue
+ 
+            # ==============================================
+
+            # ✔ FILTER 3: REQUIRED SKILLS
+
+            # ==============================================
+
+            if filter_skills:
+
+                resume_skills = payload.get("skills", [])
+
+                if isinstance(resume_skills, str):
+
+                    resume_skills = [resume_skills]
+ 
+                # Ensure all required skills appear
+
+                missing = [
+
+                    skill for skill in filter_skills
+
+                    if skill.lower() not in [s.lower() for s in resume_skills]
+
+                ]
+ 
+                if missing:
+
+                    continue
+ 
+            # ============================================================
+
+            # ATS SCORING SYSTEM (Keyword Ratio + Semantic + Experience)
+
+            # ============================================================
+
             resume_skills = payload.get("skills", [])
+
             if isinstance(resume_skills, str):
+
                 resume_skills = [resume_skills]
  
-            # ---- SMART KEYWORD MATCH PIPELINE ----
             matched_keywords = KeywordMatchService.get_matched_keywords(
+
                 resume_skills, query
+
             )
  
-            # ---- Boost score using matched keyword count ----
-            base_score = match.score
-            boost = len(matched_keywords) * 0.08  # keyword influence
-            final_score = round(base_score + boost, 4)
+            matched_count = len(matched_keywords)
+
+            total_required = len(expanded_keywords) if expanded_keywords else 1
+
+            keyword_ratio = matched_count / total_required
  
-            # Build result object
+            # ---- SEMANTIC normalization ----
+
+            sem_raw = float(match.score or 0.0)
+
+            if not math.isfinite(sem_raw) or sem_raw < 0:
+
+                sem_raw = 0.0
+
+            semantic_norm = max(min(sem_raw, 1.0), 0.0)
+ 
+            # ---- EXPERIENCE normalization ----
+
+            try:
+
+                exp_raw = float(payload.get("experience_years") or 0)
+
+            except:
+
+                exp_raw = 0
+
+            experience_norm = min(exp_raw / 10.0, 1.0)
+ 
+            # ---- ATS WEIGHTS ----
+
+            W_KEYWORD = 0.60
+
+            W_SEMANTIC = 0.35
+
+            W_EXPERIENCE = 0.05
+ 
+            combined = (
+
+                W_KEYWORD * keyword_ratio +
+
+                W_SEMANTIC * semantic_norm +
+
+                W_EXPERIENCE * experience_norm
+
+            )
+ 
+            final_pct = round(max(min(combined, 1.0), 0.0) * 100, 2)
+ 
+            # Build response entry
+
             final_results.append({
+
                 "id": match.id,
-                "score": final_score,
+
+                "score": final_pct,
+
+                "semantic_raw": round(semantic_norm, 4),
+
+                "keyword_ratio": round(keyword_ratio, 4),
+
                 "matched_keywords": matched_keywords,
+
+                "matched_count": matched_count,
+
+                "total_required": total_required,
+
                 "data": payload
+
             })
  
-        # Sort by boosted score
+        # SORT by score descending
+
         final_results.sort(key=lambda x: x["score"], reverse=True)
  
         return Response({"results": final_results}, status=200)
+
+ 
  
 
 
@@ -589,7 +761,7 @@ def filter_resumes(request):
         if skill:
             # Search the 'skills' list in Qdrant
             must_conditions.append(models.FieldCondition(
-                key="skills", match=models.MatchValue(value=skill)
+                key="skills", match=models.MatchAny(any=[skill.lower()])
             ))
 
         # Execute Search
@@ -1082,9 +1254,15 @@ def jd_match(request):
                 
                 match_result = match_resume_to_jd(resume_skills, jd_keywords)
                 
-                # ✅ FIX: Extract 'file_name' from the payload
-                # This is the critical missing piece!
-                file_name = payload.get('file_name') or payload.get('readable_file_name') or payload.get('s3_url', '').split('/')[-1]
+                # ✅ Extract 'file_name' from the payload
+                file_name = (
+                    payload.get('file_name')
+                    or payload.get('readable_file_name')
+                    or payload.get('s3_url', '').split('/')[-1]
+                )
+
+                # ✅ NEW: include resume_text so frontend can highlight
+                resume_text = payload.get('resume_text', '') or ''
                 
                 candidate_data = {
                     'id': resume.id,
@@ -1099,7 +1277,8 @@ def jd_match(request):
                     'match_count': match_result['match_count'],
                     'total_required': match_result['total_required'],
                     's3_url': payload.get('s3_url', ''),
-                    'file_name': file_name, # <--- ADDED THIS FIELD
+                    'file_name': file_name,
+                    'resume_text': resume_text,  # ✅ for highlighting
                 }
                 
                 matches.append(candidate_data)
@@ -1111,17 +1290,17 @@ def jd_match(request):
         matches.sort(key=lambda x: x['match_percentage'], reverse=True)
         
         return Response({
-            'jd_text': jd_text, 
+            'jd_text': jd_text,
             'jd_keywords': jd_keywords,
             'matches': matches,
             'total_matches': len(matches),
-            'success': True
+            'success': True,
         }, status=status.HTTP_200_OK)
     
     except Exception as e:
         print(f"❌ CRITICAL ERROR in jd_match: {e}")
         traceback.print_exc()
-        return Response({'error': str(e), 'success': False}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)    
+        return Response({'error': str(e), 'success': False}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 # ============================================================

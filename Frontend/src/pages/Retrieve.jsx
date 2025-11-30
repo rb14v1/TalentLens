@@ -19,15 +19,19 @@ function Retrieve() {
   const [searchTerm, setSearchTerm] = useState("");
   const [resumes, setResumes] = useState([]);
   const [selectedResume, setSelectedResume] = useState(null);
-  const [matchedKeywords, setMatchedKeywords] = useState([]);  // ⭐ NEW STATE
+  const [matchedKeywords, setMatchedKeywords] = useState([]);
  
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
  
+  // ⭐ NEW STATES FOR HIGHLIGHTS
+  const [showHighlights, setShowHighlights] = useState(false);
+  const [highlightedText, setHighlightedText] = useState("");
+ 
   const getPdfProxyUrl = (fileUrl) =>
     `${API_BASE_URL}/proxy_resume/?file_url=${encodeURIComponent(fileUrl)}`;
  
-  // ⭐ NEW FUNCTION: Fetch Matched Keywords
+  // ⭐ Fetch Matched Keywords
   const fetchMatchedKeywords = async (resume) => {
     try {
       const response = await fetch(`${API_BASE_URL}/match_keywords/`, {
@@ -100,7 +104,7 @@ function Retrieve() {
               ? `${payload.experience_years} years`
               : payload.experience || "",
           matchScore: Number(r.score) || 0,
-          matched_keywords: [], // replaced by API
+          matched_keywords: [],
           s3_url: payload.s3_url || "",
           file_name:
             payload.file_name ||
@@ -147,15 +151,15 @@ function Retrieve() {
     window.open(viewUrl, "_blank", "noopener,noreferrer");
   };
  
-  // ⭐ UPDATED: When modal opens, fetch matched keywords
+  // ⭐ When modal opens, fetch matched keywords
   const openModal = (resume) => {
     setSelectedResume(resume);
-    fetchMatchedKeywords(resume);   // <--- NEW LINE
+    fetchMatchedKeywords(resume);
   };
  
   const closeModal = () => {
     setSelectedResume(null);
-    setMatchedKeywords([]); // clear keywords
+    setMatchedKeywords([]);
   };
  
   const handleDownload = (resume) => {
@@ -167,6 +171,50 @@ function Retrieve() {
     const proxy = getPdfProxyUrl(url);
     window.open(proxy, "_blank", "noopener,noreferrer");
   };
+ 
+  // ⭐ HIGHLIGHT LOGIC
+  const openHighlights = () => {
+  if (!selectedResume) return;
+ 
+  let resumeText =
+    selectedResume.raw_payload?.resume_text ||
+    selectedResume.raw_payload?.text ||
+    "";
+ 
+  // 1️⃣ Remove excessive blank lines
+  resumeText = resumeText.replace(/\n{3,}/g, "\n\n");
+ 
+  // 2️⃣ Clean bullet formatting
+  resumeText = resumeText
+    .replace(/\n\s*•\s*/g, "\n• ")     // ensure bullet stays inline
+    .replace(/•\s*\n/g, "• ");        // prevent bullet alone on a line
+ 
+  // 3️⃣ Remove lines containing only dots or stray characters
+  resumeText = resumeText.replace(/^\s*[•.]?\s*$/gm, "");
+ 
+  // 4️⃣ Normalize spacing around bullets
+  resumeText = resumeText.replace(/\s*•\s*/g, "• ");
+ 
+  // 5️⃣ Trim excess spaces
+  resumeText = resumeText.trim();
+ 
+  // 🔥 Highlight Matched Keywords
+  let processed = resumeText;
+ 
+  matchedKeywords.forEach((kw) => {
+    const regex = new RegExp(`\\b${kw}\\b`, "gi");
+    processed = processed.replace(
+      regex,
+      `<mark style="background: yellow; padding: 2px; border-radius: 3px;">${kw}</mark>`
+    );
+  });
+ 
+  setHighlightedText(processed);
+  setShowHighlights(true);
+};
+ 
+ 
+  const closeHighlights = () => setShowHighlights(false);
  
   return (
     <div className="min-h-screen flex bg-gradient-to-br from-[#F8FAFC] via-[#E9F1F4] to-[#E4EEF4] relative">
@@ -291,7 +339,7 @@ function Retrieve() {
         </div>
       </main>
  
-      {/* MODAL */}
+      {/* MAIN RESUME MODAL */}
       {selectedResume && (
         <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 w-full md:w-[720px] relative shadow-2xl overflow-y-auto max-h-[90vh]">
@@ -376,7 +424,7 @@ function Retrieve() {
               </div>
             </div>
  
-            {/* ⭐ MATCHED KEYWORDS (API-BASED) */}
+            {/* Matched Keywords */}
             <div className="mb-6">
               <p className="font-medium text-gray-700 mb-2">Matched Keywords:</p>
               <div className="flex flex-wrap gap-2">
@@ -399,14 +447,23 @@ function Retrieve() {
             <div className="flex gap-3">
               <button
                 onClick={() => openFullView(selectedResume)}
-                className="flex-1 w-full bg-[#21B0BE] text-white py-2 rounded-lg hover:bg-[#16939a] transition text-center"
+                className="flex-1 bg-[#21B0BE] text-white py-2 rounded-lg hover:bg-[#16939a] transition"
               >
                 Open Full View
               </button>
  
+              {/* ⭐ NEW HIGHLIGHTS BUTTON */}
+              <button
+  onClick={openHighlights}
+  className="flex-1 bg-black text-white py-2 rounded-lg font-medium hover:bg-[#1a1a1a] transition"
+>
+  Highlights
+</button>
+ 
+ 
               <button
                 onClick={() => handleDownload(selectedResume)}
-                className="w-1/3 px-4 py-2 bg-white border border-gray-300 rounded-lg text-[#053245] hover:shadow transition"
+                className="flex-1 px-4 py-2 bg-white border border-gray-300 rounded-lg text-[#053245] hover:shadow transition"
               >
                 Download
               </button>
@@ -414,6 +471,34 @@ function Retrieve() {
           </div>
         </div>
       )}
+ 
+      {/* ⭐ HIGHLIGHTS MODAL */}
+      {showHighlights && (
+        <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-[999] p-4">
+          <div className="bg-white rounded-2xl p-6 w-full md:w-[720px] shadow-2xl max-h-[90vh] overflow-y-auto relative">
+            <button
+              onClick={closeHighlights}
+              className="absolute top-3 right-3 text-gray-700 hover:text-black"
+            >
+              <X size={22} />
+            </button>
+ 
+            <h2 className="text-xl font-semibold mb-4 text-[#0F394D]">
+              Resume Highlights
+            </h2>
+ 
+            <p className="text-gray-600 mb-4 text-sm">
+              Showing highlighted matched skills inside the resume text.
+            </p>
+ 
+            <div
+              className="prose max-w-none whitespace-pre-wrap leading-relaxed text-sm"
+              dangerouslySetInnerHTML={{ __html: highlightedText }}
+            />
+          </div>
+        </div>
+      )}
+ 
     </div>
   );
 }

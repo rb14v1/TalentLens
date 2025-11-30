@@ -394,8 +394,8 @@ def get_jd_drafts(request, email):
         })
  
     return JsonResponse({"drafts": result})
-
-
+ 
+ 
 @csrf_exempt
 def delete_jd_draft(request, draft_id):
     if request.method != "DELETE":
@@ -894,4 +894,5 @@ def get_job_details(request, job_id):
  
     except Exception as e:
         return Response({"error": str(e)}, status=500)
+ 
  

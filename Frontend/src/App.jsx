@@ -18,18 +18,18 @@ import PublishedJDs from "./pages/PublishedJDs"; // ✅ Correctly Imported
 import Drafts from "./pages/Drafts";
 import MatchedResume from "./pages/MatchedResume";
 import ViewJD from "./pages/ViewJD";
-
+ 
 function App() {
   const [jdData, setJdData] = useState(null);
-
+ 
   return (
     <Routes>
-
+ 
       {/* Login page is now the landing page */}
       <Route path="/" element={<Login />} />
       <Route path="/login" element={<Login />} /> {/* Explicit /login route */}
       <Route path="/register" element={<Register />} />
-
+ 
       <Route path="/home" element={<RecruiterHome />} />
       <Route path="/upload" element={<Upload />} />
       <Route path="/retrieve" element={<Retrieve />} />
@@ -41,26 +41,29 @@ function App() {
       <Route path="/managerdashboard" element={<Managerdashboard />} />
       <Route path="/managerpage" element={<Managerpage />} />
       <Route path="/drafts" element={<Drafts />} />
-      <Route path ="/matchedresume" element={<MatchedResume />} />
-      <Route path="/view-jd/:id" element={<ViewJD />} />
-      
-      
-      {/* ✅ ADDED THIS MISSING ROUTE */}
+      <Route path="/matchedresume" element={<MatchedResume />} />
+ 
+      {/* ✅ Correct FIXED ROUTES */}
+      <Route path="/view-job/:id" element={<ViewJD />} />
+      <Route path="/view-job/:id/:title" element={<ViewJD />} />
+ 
+      {/* Published JDs */}
       <Route path="/published-jds" element={<PublishedJDs />} />
-
+ 
       {/* Shared State Routes */}
       <Route
         path="/description"
         element={<Description jdData={jdData} setJdData={setJdData} />}
       />
-
+ 
       <Route
         path="/preview"
         element={<Preview jdData={jdData} setJdData={setJdData} />}
       />
     </Routes>
-    
   );
 }
-
+ 
 export default App;
+ 
+ 
