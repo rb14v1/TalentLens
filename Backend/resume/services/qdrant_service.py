@@ -144,7 +144,6 @@ def insert_resume(resume_data: Dict[str, Any], vector: Optional[List[float]] = N
 # ======================================================
 def upsert_point(point_id: str, vector: List[float], payload: Dict[str, Any]):
     initialize_qdrant_collection()
-
     if not qdrant_client:
         raise RuntimeError("❌ Qdrant not initialized")
 
@@ -159,13 +158,14 @@ def upsert_point(point_id: str, vector: List[float], payload: Dict[str, Any]):
             PointStruct(
                 id=str(point_id),
                 vector=vector,
-                payload=payload,
-            )
+                payload=payload,   # ← all keys you add in views.py go here
+            ),
         ],
         wait=True,
     )
 
     print(f"✅ Upserted: {point_id}")
+
 
 # ======================================================
 # Search Collection

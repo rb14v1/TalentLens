@@ -30,6 +30,9 @@ const JobDescriptionMatch = () => {
   const [highlightResume, setHighlightResume] = useState(null);
   const [showHighlights, setShowHighlights] = useState(false);
 
+  // NEW: required experience extracted from backend JD processing
+  const [requiredExperience, setRequiredExperience] = useState(null);
+
   const handleFileChange = (e) => setJdFile(e.target.files[0]);
 
   const handleViewResume = (resume) => {
@@ -76,6 +79,13 @@ const JobDescriptionMatch = () => {
       // backend now returns resume_text + matched_skills
       setMatchingResumes(matchData.matches || []);
       setMatchCount(matchData.total_matches || 0);
+
+      // NEW: set required experience from backend (if present)
+      setRequiredExperience(
+        matchData.required_experience !== undefined
+          ? matchData.required_experience
+          : null
+      );
 
       // reset selection state
       setSubmissionMode(false);
@@ -288,15 +298,17 @@ const JobDescriptionMatch = () => {
         )}
 
         {/* Upload Section */}
-        <div className="bg-white rounded-3xl shadow-xl p-8 mb-8 border border-gray-100">
-          <div className="flex items-center gap-6">
+        <div className="bg-white rounded-3xl shadow-xl p-6 mb-8 border border-gray-100">
+          <div className="flex items-center gap-4">
             <div className="flex-1">
               <label
                 htmlFor="jd-upload"
-                className="flex items-center gap-3 px-6 py-4 bg-gradient-to-r from-[#21B0BE] to-[#4DD0E1] text-white font-semibold rounded-xl shadow-lg hover:shadow-2xl hover:scale-105 transition-all cursor-pointer"
+                className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-[#21B0BE] to-[#4DD0E1] text-white text-sm font-medium rounded-md shadow-sm hover:shadow-md transition-all cursor-pointer"
               >
-                <Upload size={22} />
-                {jdFile ? jdFile.name : "Upload Job Description (PDF)"}
+                <Upload size={16} />
+                <span className="truncate max-w-[220px]">
+                  {jdFile ? jdFile.name : "Upload JD (PDF)"}
+                </span>
               </label>
               <input
                 id="jd-upload"
@@ -310,21 +322,21 @@ const JobDescriptionMatch = () => {
             <button
               onClick={handleMatchResumes}
               disabled={!jdFile || loading}
-              className={`flex items-center gap-3 px-8 py-4 font-semibold rounded-xl shadow-lg transition-all ${
+              className={`flex items-center gap-2 px-4 py-2 font-semibold rounded-md shadow-md text-sm transition-all ${
                 jdFile && !loading
-                  ? "bg-gradient-to-r from-[#0F394D] to-[#21B0BE] text-white hover:shadow-2xl hover:scale-105"
+                  ? "bg-gradient-to-r from-[#0F394D] to-[#21B0BE] text-white hover:shadow-lg hover:scale-105"
                   : "bg-gray-300 text-gray-500 cursor-not-allowed"
               }`}
             >
               {loading ? (
                 <>
-                  <div className="w-5 h-5 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Matching...
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-sm">Matching...</span>
                 </>
               ) : (
                 <>
-                  <Search size={22} />
-                  Match Resumes
+                  <Search size={16} />
+                  <span className="text-sm">Match Resumes</span>
                 </>
               )}
             </button>
@@ -332,12 +344,12 @@ const JobDescriptionMatch = () => {
         </div>
 
         {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Left: Job Description Preview */}
-          <div className="lg:col-span-2 bg-white rounded-3xl shadow-xl p-6 border border-gray-100 max-h-[700px] overflow-hidden flex flex-col">
+          <div className="bg-white rounded-3xl shadow-xl p-6 border border-gray-100 max-h-[700px] overflow-hidden flex flex-col">
             <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-200">
               <div className="p-3 bg-gradient-to-br from-[#21B0BE] to-[#4DD0E1] rounded-xl">
-                <Upload className="text-white" size={24} />
+                <Upload className="text-white" size={20} />
               </div>
               <h2 className="text-2xl font-bold text-[#0F394D]">
                 Job Description Preview
@@ -354,6 +366,18 @@ const JobDescriptionMatch = () => {
                   <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
                     {jdText}
                   </p>
+
+                  {/* NEW: display required experience if provided by backend */}
+                  {requiredExperience !== null && (
+                    <div className="mt-3">
+                      <p className="text-sm text-gray-600">
+                        <strong>Required Experience:</strong>{" "}
+                        <span className="text-[#053245] font-semibold">
+                          {requiredExperience}+ years
+                        </span>
+                      </p>
+                    </div>
+                  )}
 
                   {jdKeywords.length > 0 && (
                     <div className="mt-6 pt-6 border-t border-gray-200">
@@ -378,7 +402,7 @@ const JobDescriptionMatch = () => {
           </div>
 
           {/* Right: Matching Resumes */}
-          <div className="lg:col-span-3 bg-white rounded-3xl shadow-xl p-6 border border-gray-100 max-h-[700px] overflow-hidden flex flex-col">
+          <div className="bg-white rounded-3xl shadow-xl p-6 border border-gray-100 max-h-[700px] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200">
               <h2 className="text-2xl font-bold text-[#0F394D]">
                 Matching Resumes
@@ -387,7 +411,7 @@ const JobDescriptionMatch = () => {
               {matchingResumes.length > 0 && !submissionMode && (
                 <button
                   onClick={() => setSubmissionMode(true)}
-                  className="px-6 py-2 bg-gradient-to-r from-[#21B0BE] to-[#4DD0E1] text-white font-semibold rounded-full shadow-md hover:shadow-lg hover:scale-105 transition-all"
+                  className="px-4 py-2 bg-gradient-to-r from-[#21B0BE] to-[#4DD0E1] text-white font-semibold rounded-full shadow-md hover:shadow-lg hover:scale-105 transition-all text-sm"
                 >
                   Select
                 </button>
@@ -398,7 +422,7 @@ const JobDescriptionMatch = () => {
                   <button
                     onClick={() => setConfirmPopup(true)}
                     disabled={selectedResumes.length === 0}
-                    className={`px-6 py-2 font-semibold rounded-full shadow-md transition-all ${
+                    className={`px-4 py-2 font-semibold rounded-full shadow-md transition-all text-sm ${
                       selectedResumes.length > 0
                         ? "bg-green-500 text-white hover:bg-green-600 hover:scale-105"
                         : "bg-gray-300 text-gray-500 cursor-not-allowed"
@@ -411,7 +435,7 @@ const JobDescriptionMatch = () => {
                       setSubmissionMode(false);
                       setSelectedResumes([]);
                     }}
-                    className="px-6 py-2 bg-gray-500 text-white font-semibold rounded-full hover:bg-gray-600 transition-all"
+                    className="px-4 py-2 bg-gray-500 text-white font-semibold rounded-full hover:bg-gray-600 transition-all text-sm"
                   >
                     Cancel
                   </button>
@@ -446,7 +470,9 @@ const JobDescriptionMatch = () => {
                             />
                           )}
                           <h3 className="text-xl font-bold text-[#0F394D]">
-                            {resume.candidate_name || resume.name || "Unknown"}
+                            {resume.candidate_name ||
+                              resume.name ||
+                              "Unknown"}
                           </h3>
                           <span
                             className={`ml-auto px-4 py-1 text-sm font-bold rounded-full ${
@@ -465,10 +491,51 @@ const JobDescriptionMatch = () => {
                           {resume.email || "No email"}
                         </p>
 
-                        <p className="text-sm text-gray-700 mb-3">
+                        <p className="text-sm text-gray-700 mb-1">
                           <strong>Experience:</strong>{" "}
                           {resume.experience_years || 0} years
                         </p>
+
+                        {/* NEW: show required vs candidate experience comparison */}
+                        {requiredExperience !== null && (
+                          <p className="text-sm mb-3">
+                            <strong>Requirement:</strong> {requiredExperience}+
+                            yrs{" "}
+                            {Number(resume.experience_years || 0) >=
+                            Number(requiredExperience) ? (
+                              <span className="text-green-600 font-semibold ml-2">
+                                ✓ Meets
+                              </span>
+                            ) : (
+                              <span className="text-red-600 font-semibold ml-2">
+                                ✗ Short by{" "}
+                                {Number(requiredExperience) -
+                                  Number(resume.experience_years || 0)}{" "}
+                                yrs
+                              </span>
+                            )}
+                          </p>
+                        )}
+
+                        {/* ⭐ NEW: Candidate type */}
+                        <p className="text-sm text-gray-700 mb-1">
+                          <strong>Candidate type:</strong>{" "}
+                          {resume.candidate_type
+                            ? resume.candidate_type
+                                .toString()
+                                .toLowerCase() === "internal"
+                              ? "Internal"
+                              : "External"
+                            : "Not specified"}
+                        </p>
+
+                        {/* ⭐ NEW: Salary (optional display) */}
+                        {resume.salary != null && (
+                          <p className="text-sm text-gray-700 mb-2">
+                            <strong>Salary:</strong> {resume.salary}{" "}
+                            {resume.salary_currency || ""}
+                          </p>
+                        )}
 
                         {/* Matched skills */}
                         <div className="mb-3">
@@ -476,14 +543,16 @@ const JobDescriptionMatch = () => {
                             ✓ Matched Skills:
                           </p>
                           <div className="flex flex-wrap gap-2">
-                            {(resume.matched_skills || []).map((skill, i) => (
-                              <span
-                                key={i}
-                                className="px-3 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full border border-green-300"
-                              >
-                                {skill}
-                              </span>
-                            ))}
+                            {(resume.matched_skills || []).map(
+                              (skill, i) => (
+                                <span
+                                  key={i}
+                                  className="px-3 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full border border-green-300"
+                                >
+                                  {skill}
+                                </span>
+                              )
+                            )}
                             {(!resume.matched_skills ||
                               resume.matched_skills.length === 0) && (
                               <span className="text-sm text-gray-400 italic">
@@ -505,8 +574,7 @@ const JobDescriptionMatch = () => {
                         <button
                           onClick={() => handleViewResume(resume)}
                           disabled={loadingPdf}
-                          className="w-full px-4 py-2 bg-gradient-to-r from-[#053245] to-[#12A7B3]
-                          text-white rounded-lg text-sm font-semibold hover:shadow-lg transition flex items-center justify-center gap-2"
+                          className="w-full px-4 py-2 bg-gradient-to-r from-[#053245] to-[#12A7B3] text-white rounded-lg text-sm font-semibold hover:shadow-lg transition flex items-center justify-center gap-2"
                         >
                           <Eye size={18} />
                           {loadingPdf ? "Loading..." : "View Resume"}

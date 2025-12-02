@@ -40,7 +40,7 @@ function Login() {
 
       // 3. Redirect based on role
       if (role === "manager") {
-        navigate("/HiringManagerPage");
+        navigate("/managerhome");
       } else if (role === "recruiter") {
         navigate("/home");
       } else if (role === "hiring_manager") {

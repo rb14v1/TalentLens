@@ -121,67 +121,80 @@ class ResumeUploadView(APIView):
     """
 
     def post(self, request, *args, **kwargs):
-        # ✅ FIX: Changed to 'resume_file' to match your Upload.jsx
+        # ✅ matches Upload.jsx
         resume_files = request.FILES.getlist("resume_file")
         if not resume_files:
             return Response({"error": "No resume files provided"}, status=status.HTTP_400_BAD_REQUEST)
 
         if len(resume_files) > 25:
-            return Response({"error": "You can upload a maximum of 25 resumes at a time."},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "You can upload a maximum of 25 resumes at a time."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ✅ NEW: extra metadata for this batch
+        salary = request.data.get("salary")
+        salary_currency = request.data.get("salary_currency")
+        candidate_type = request.data.get("candidate_type")
 
         uploaded_results = []
         skipped_duplicates = []
         errors = []
 
-        # Use the globally defined qdrant client
         qc = qdrant_client
 
         for resume_file in resume_files:
             try:
-                # Use the original filename as the dedupe key
                 incoming_name = (resume_file.name or "").strip()
                 if not incoming_name:
                     errors.append(f"{resume_file.name or 'unknown'}: missing filename")
                     continue
 
-                readable_file_name = incoming_name  # keep case as-is for display
+                readable_file_name = incoming_name
                 normalized_key = _normalize_filename(readable_file_name)
 
-                # === Filename-only duplicate check (using same normalization) ===
+                # === Filename-only duplicate check ===
                 is_duplicate = False
                 try:
                     if qc:
-                        # 1) check by readable_file_name payload variants
                         variants = {
                             readable_file_name,
                             readable_file_name.lower(),
                             f"resumes/{readable_file_name}",
-                            f"resumes/{readable_file_name.lower()}"
+                            f"resumes/{readable_file_name.lower()}",
                         }
                         for v in variants:
                             try:
-                                fil = models.Filter(must=[models.FieldCondition(
-                                    key="readable_file_name", match=models.MatchValue(value=v))])
+                                fil = models.Filter(
+                                    must=[
+                                        models.FieldCondition(
+                                            key="readable_file_name",
+                                            match=models.MatchValue(value=v),
+                                        )
+                                    ]
+                                )
                                 recs, _ = qc.scroll(
-                                    collection_name="resumes", scroll_filter=fil, limit=1)
+                                    collection_name="resumes",
+                                    scroll_filter=fil,
+                                    limit=1,
+                                )
                                 if recs and len(recs) > 0:
                                     is_duplicate = True
                                     break
                             except Exception as e:
-                                # continue checking other variants
                                 print(f"⚠️ filename duplicate variant check failed for '{v}': {e}")
 
-                        # 2) fallback: check by deterministic UUID derived from normalized filename
                         if (not is_duplicate) and normalized_key:
                             try:
                                 probe_id = _filename_to_point_id(normalized_key)
                                 recs = qc.retrieve(
-                                    collection_name="resumes", ids=[probe_id], with_payload=True)
+                                    collection_name="resumes",
+                                    ids=[probe_id],
+                                    with_payload=True,
+                                )
                                 if recs and len(recs) > 0:
                                     is_duplicate = True
                             except Exception:
-                                # not fatal; continue
                                 pass
                 except Exception as e:
                     print(f"⚠️ filename duplicate check failed for {readable_file_name}: {e}")
@@ -189,26 +202,25 @@ class ResumeUploadView(APIView):
                 if is_duplicate:
                     skipped_duplicates.append(readable_file_name)
                     print(
-                        f"⚠️ Duplicate filename detected (skipping upload for user-facing flow): {readable_file_name}")
+                        f"⚠️ Duplicate filename detected (skipping upload for user-facing flow): {readable_file_name}"
+                    )
                     continue
 
-                # Read file bytes once (for S3 upload & extraction)
+                # Read file bytes once
                 file_bytes = resume_file.read()
                 if not file_bytes:
                     errors.append(f"{readable_file_name}: file empty or unreadable")
                     continue
-                
-                # --- ✅ START OF FIX ---
-                # Calculate the file hash
+
+                # hash
                 file_hash = hashlib.sha256(file_bytes).hexdigest()
-                # --- ✅ END OF FIX ---
 
                 s3_buffer = io.BytesIO(file_bytes)
                 s3_buffer.name = resume_file.name
                 extract_buffer = io.BytesIO(file_bytes)
                 extract_buffer.name = resume_file.name
 
-                # Extract fields (you can still parse email/skills/etc.)
+                # Extract fields
                 try:
                     extracted_data = extract_fields(extract_buffer)
                 except Exception as e:
@@ -216,99 +228,110 @@ class ResumeUploadView(APIView):
                     errors.append(f"{readable_file_name}: extraction failed ({str(e)})")
                     continue
 
-                candidate_name = extracted_data.get(
-                    "name") or extracted_data.get("candidate_name") or "Unknown"
-                candidate_email = (
-                    extracted_data.get("email") or "").strip().lower() or None
+                candidate_name = (
+                    extracted_data.get("name")
+                    or extracted_data.get("candidate_name")
+                    or "Unknown"
+                )
+                candidate_email = (extracted_data.get("email") or "").strip().lower() or None
 
-                # Upload to S3 (uses imported service)
+                # S3 upload
                 try:
                     s3_url = upload_resume_to_s3(
-                        s3_buffer, resume_file.content_type, candidate_name)
+                        s3_buffer, resume_file.content_type, candidate_name
+                    )
                     print(f"✅ Uploaded to S3: {s3_url}")
                 except Exception as e:
                     print(f"❌ S3 upload failed for {readable_file_name}: {e}")
                     errors.append(f"{readable_file_name}: s3 upload failed ({str(e)})")
                     continue
 
-                # Determine object/file_name from s3 url
+                # object/file name
                 try:
                     parsed_url = urlparse(s3_url)
-                    object_name = parsed_url.path.lstrip('/')
-                    stored_file_name = object_name.split('/')[-1] or readable_file_name
+                    object_name = parsed_url.path.lstrip("/")
+                    stored_file_name = object_name.split("/")[-1] or readable_file_name
                 except Exception:
                     stored_file_name = readable_file_name
 
                 # Embedding
-                resume_text = extracted_data.get(
-                    "resume_text", "") or extracted_data.get("text", "")
+                resume_text = extracted_data.get("resume_text", "") or extracted_data.get(
+                    "text", ""
+                )
                 try:
                     embedding = get_text_embedding(resume_text)
                 except Exception as e:
-                    print(
-                        f"⚠️ Embedding generation failed for {readable_file_name}: {e}")
+                    print(f"⚠️ Embedding generation failed for {readable_file_name}: {e}")
                     errors.append(f"{readable_file_name}: embedding failed ({str(e)})")
                     continue
 
                 extracted_skills = extracted_data.get("skills", []) or []
 
+                # ✅ payload now also carries salary + currency + candidate_type
                 payload = {
                     "s3_url": s3_url,
                     "candidate_name": candidate_name,
                     "email": candidate_email,
-                    
-                    # --- ✅ START OF FIX ---
-                    "file_hash": file_hash,  # <-- ADDED THE HASH TO THE PAYLOAD
-                    # --- ✅ END OF FIX ---
-                    
+                    "file_hash": file_hash,
                     "file_name": stored_file_name,
                     "readable_file_name": readable_file_name,
                     "experience_years": extracted_data.get("experience_years"),
                     "cpd_level": extracted_data.get("cpd_level"),
                     "skills": extracted_skills,
                     "resume_text": resume_text,
+                    "salary": float(salary) if salary else None,
+                    "salary_currency": salary_currency or None,
+                    "candidate_type": (candidate_type or "external").lower(),
                 }
 
-                # === Deterministic UUID id derived from normalized filename ===
+                # Deterministic UUID id
                 try:
                     point_id = _filename_to_point_id(normalized_key)
                 except Exception:
                     point_id = str(uuid.uuid4())
 
-                # Perform upsert (idempotent)
+                # Upsert
                 try:
                     upsert_point(point_id, embedding, payload)
                     uploaded_results.append(
-                        {"point_id": point_id, "file": readable_file_name})
+                        {"point_id": point_id, "file": readable_file_name}
+                    )
                     print(f"✅ Saved to Qdrant: {point_id} ({readable_file_name})")
                 except Exception as e:
                     print(f"❌ Qdrant upsert failed for {readable_file_name}: {e}")
                     errors.append(
-                        f"{readable_file_name}: qdrant upsert failed ({str(e)})")
+                        f"{readable_file_name}: qdrant upsert failed ({str(e)})"
+                    )
                     continue
 
             except Exception as e:
                 print(f"❌ Unexpected error processing {resume_file.name}: {e}")
-                errors.append(
-                    f"{resume_file.name}: unexpected error ({str(e)})")
+                errors.append(f"{resume_file.name}: unexpected error ({str(e)})")
                 continue
 
         # Final responses
         if not uploaded_results and skipped_duplicates:
-            return Response({
-                "message": "All provided resumes already exist (by filename).",
-                "duplicates": skipped_duplicates,
-                "uploaded_count": 0,
-                "errors": errors
-            }, status=status.HTTP_200_OK)
+            return Response(
+                {
+                    "message": "All provided resumes already exist (by filename).",
+                    "duplicates": skipped_duplicates,
+                    "uploaded_count": 0,
+                    "errors": errors,
+                },
+                status=status.HTTP_200_OK,
+            )
 
-        return Response({
-            "message": "Upload complete!",
-            "uploaded_count": len(uploaded_results),
-            "skipped_duplicates": skipped_duplicates,
-            "uploaded_data": uploaded_results,
-            "errors": errors
-        }, status=status.HTTP_201_CREATED if uploaded_results else status.HTTP_200_OK)
+        return Response(
+            {
+                "message": "Upload complete!",
+                "uploaded_count": len(uploaded_results),
+                "skipped_duplicates": skipped_duplicates,
+                "uploaded_data": uploaded_results,
+                "errors": errors,
+            },
+            status=status.HTTP_201_CREATED if uploaded_results else status.HTTP_200_OK,
+        )
+
  
 # -----------------------------
 # Search endpoint (kept largely as-is)
@@ -1202,7 +1225,30 @@ def jd_match(request):
     
     jd_text = None
     jd_keywords = []
-    
+
+    # ===== JD SALARY RANGE for filtering (e.g. "500000-700000") =====
+    salary_str = request.data.get("salary") or request.POST.get("salary")
+    jd_min_salary = jd_max_salary = None
+    if salary_str:
+        parts = (
+            salary_str.replace("–", "-")
+            .replace("—", "-")
+            .split("-")
+        )
+        try:
+            if len(parts) == 2:
+                jd_min_salary = float(parts[0].strip())
+                jd_max_salary = float(parts[1].strip())
+            else:
+                jd_min_salary = float(parts[0].strip())
+                jd_max_salary = jd_min_salary
+        except (TypeError, ValueError):
+            jd_min_salary = jd_max_salary = None
+
+    # ===== Experience extraction defaults =====
+    required_experience = 0
+    EXPERIENCE_WEIGHT = 20  # keeps same weighting as your earlier snippet
+
     try:
         # ===== STEP 1: Get JD text =====
         jd_file = request.FILES.get('jd_file')
@@ -1214,15 +1260,164 @@ def jd_match(request):
                 print(f"✅ Extracted {len(jd_text)} chars from PDF")
             except Exception as e:
                 print(f"❌ PDF extraction failed: {e}")
-                return Response({'error': f'PDF extraction failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return Response(
+                    {'error': f'PDF extraction failed: {str(e)}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
         
         elif request.data and 'jd_text' in request.data:
             print("[1] Processing raw JD text...")
             jd_text = request.data.get('jd_text', '')
         
         if not jd_text:
-            return Response({'error': 'No JD file or text provided'}, status=status.HTTP_400_BAD_REQUEST)
-        
+            return Response(
+                {'error': 'No JD file or text provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ===== NEW: If salary not provided explicitly, try to extract from jd_text =====
+        # Strategy:
+        # 1) Prefer explicit 'salary' keyword lines: look for "salary" and extract numbers near it.
+        # 2) Require at least 5 digits for a single salary number to avoid matching dates like '12' or '2025'.
+        if jd_min_salary is None and jd_max_salary is None and jd_text:
+            try:
+                import re
+
+                jt = jd_text.lower()
+                jt_norm = jt.replace("₹", " ").replace("rs.", " ").replace("rs", " ").replace("inr", " ")
+
+                # helper regex: numbers with optional commas (requires >=5 digits for single matches)
+                range_pattern_near = re.compile(r'(\d{1,3}(?:[,\d]{0,}\d)?)\s*[-–—]\s*(\d{1,3}(?:[,\d]{0,}\d)?)')
+                # stricter range that requires each side to be at least 5 digits when commas removed
+                strict_range = re.compile(r'(\d{5,}(?:[,\d]*\d)?)\s*[-–—]\s*(\d{5,}(?:[,\d]*\d)?)')
+                # single number (at least 5 digits)
+                single_pattern_strict = re.compile(r'(\d{5,}(?:[,\d]*\d)?)')
+
+                found = False
+
+                # 1) Search near 'salary' token first
+                salary_idx = jt_norm.find("salary")
+                if salary_idx != -1:
+                    window_start = max(0, salary_idx - 80)
+                    window_end = min(len(jt_norm), salary_idx + 160)
+                    window = jt_norm[window_start:window_end]
+
+                    # try strict range in the window
+                    m = strict_range.search(window)
+                    if m:
+                        a = m.group(1).replace(",", "").strip()
+                        b = m.group(2).replace(",", "").strip()
+                        try:
+                            jd_min_salary = float(a)
+                            jd_max_salary = float(b)
+                            if jd_min_salary > jd_max_salary:
+                                jd_min_salary, jd_max_salary = jd_max_salary, jd_min_salary
+                            found = True
+                            print(f"🔎 Extracted salary range (near 'salary'): {jd_min_salary}-{jd_max_salary}")
+                        except:
+                            jd_min_salary = jd_max_salary = None
+
+                    # if no strict range, try any reasonable range pattern in window
+                    if not found:
+                        m2 = range_pattern_near.search(window)
+                        if m2:
+                            a = m2.group(1).replace(",", "").strip()
+                            b = m2.group(2).replace(",", "").strip()
+                            try:
+                                # ensure numeric length sanity (>=5 digits) after removing commas
+                                if len(a.replace(",", "").strip()) >= 5 or len(b.replace(",", "").strip()) >= 5:
+                                    jd_min_salary = float(a)
+                                    jd_max_salary = float(b)
+                                    if jd_min_salary > jd_max_salary:
+                                        jd_min_salary, jd_max_salary = jd_max_salary, jd_min_salary
+                                    found = True
+                                    print(f"🔎 Extracted salary range (near 'salary', fallback): {jd_min_salary}-{jd_max_salary}")
+                            except:
+                                jd_min_salary = jd_max_salary = None
+
+                    # try single strict number near 'salary'
+                    if not found:
+                        m3 = single_pattern_strict.search(window)
+                        if m3:
+                            v = m3.group(1).replace(",", "").strip()
+                            try:
+                                vnum = float(v)
+                                jd_min_salary = jd_max_salary = vnum
+                                found = True
+                                print(f"🔎 Extracted single salary (near 'salary'): {vnum}")
+                            except:
+                                jd_min_salary = jd_max_salary = None
+
+                # 2) If we didn't find anything near 'salary', try a stricter scan of the whole text
+                if not found:
+                    # first try strict range over entire text
+                    m_full = strict_range.search(jt_norm)
+                    if m_full:
+                        a = m_full.group(1).replace(",", "").strip()
+                        b = m_full.group(2).replace(",", "").strip()
+                        try:
+                            jd_min_salary = float(a)
+                            jd_max_salary = float(b)
+                            if jd_min_salary > jd_max_salary:
+                                jd_min_salary, jd_max_salary = jd_max_salary, jd_min_salary
+                            found = True
+                            print(f"🔎 Extracted salary range (full text strict): {jd_min_salary}-{jd_max_salary}")
+                        except:
+                            jd_min_salary = jd_max_salary = None
+
+                # 3) Final fallback: single large number in whole text (>=5 digits)
+                if not found:
+                    m_single = single_pattern_strict.search(jt_norm)
+                    if m_single:
+                        v = m_single.group(1).replace(",", "").strip()
+                        try:
+                            vnum = float(v)
+                            jd_min_salary = jd_max_salary = vnum
+                            found = True
+                            print(f"🔎 Extracted single salary (full text fallback): {vnum}")
+                        except:
+                            jd_min_salary = jd_max_salary = None
+
+                # If nothing found, leave jd_min_salary and jd_max_salary as None
+            except Exception as ex:
+                print("⚠️ JD salary extraction failed:", ex)
+                jd_min_salary = jd_max_salary = None
+
+        # ===== NEW: Extract required experience from JD text =====
+        try:
+            import re as _re
+            exp_regex = r"[Ee]xperience[:\s]+(\d+)\+?\s*years"
+            m_exp = _re.search(exp_regex, jd_text)
+            if m_exp:
+                try:
+                    required_experience = int(m_exp.group(1))
+                    print(f"🟩 REQUIRED EXPERIENCE FOUND: {required_experience} years")
+                except Exception:
+                    required_experience = 0
+            else:
+                # fallback: try looser patterns like "X years experience" or "minimum X years"
+                loose_patterns = [
+                    r"(\d+)\s+years\s+experience",
+                    r"minimum\s+of\s+(\d+)\s+years",
+                    r"at\s+least\s+(\d+)\s+years"
+                ]
+                found_exp = False
+                for lp in loose_patterns:
+                    mm = _re.search(lp, jd_text, flags=_re.IGNORECASE)
+                    if mm:
+                        try:
+                            required_experience = int(mm.group(1))
+                            print(f"🟩 REQUIRED EXPERIENCE (loose pattern): {required_experience} years")
+                            found_exp = True
+                            break
+                        except Exception:
+                            continue
+                if not found_exp:
+                    print("⚠️ No explicit experience requirement found in JD.")
+        except Exception as ex:
+            print("⚠️ Experience extraction failed:", ex)
+            required_experience = 0
+
         # ===== STEP 2: Extract keywords =====
         print("[2] Extracting JD keywords...")
         try:
@@ -1230,7 +1425,10 @@ def jd_match(request):
             print(f"✅ Found {len(jd_keywords)} keywords: {jd_keywords[:5]}...")
         except Exception as e:
             print(f"❌ Keyword extraction failed: {e}")
-            return Response({'error': f'Keyword extraction failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {'error': f'Keyword extraction failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
         
         # ===== STEP 3: Get all resumes =====
         print("[3] Fetching all resumes from Qdrant...")
@@ -1239,7 +1437,10 @@ def jd_match(request):
             print(f"✅ Found {len(all_resumes)} resumes in Qdrant")
         except Exception as e:
             print(f"❌ Failed to fetch resumes: {e}")
-            return Response({'error': f'Failed to fetch resumes: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {'error': f'Failed to fetch resumes: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
         
         # ===== STEP 4: Match resumes =====
         print("[4] Matching resumes against JD...")
@@ -1251,9 +1452,53 @@ def jd_match(request):
                 resume_skills = payload.get('skills', [])
                 if isinstance(resume_skills, str):
                     resume_skills = [resume_skills]
-                
+
+                # DEBUG: log what we're actually comparing
+                print(f"\n--- Resume #{idx} ---")
+                print("JD salary string (frontend):", salary_str)
+                print("JD min/max (after parse/extract):", jd_min_salary, jd_max_salary)
+                print("Resume salary (raw):", payload.get("salary"))
+
+                # ----- SALARY FILTER: only compare against JD upper limit -----
+                # Requirement: include resumes whose salary is <= jd_max_salary
+                resume_salary = payload.get("salary")
+                if jd_max_salary is not None and resume_salary is not None:
+                    try:
+                        rs = float(str(resume_salary).replace(",", "").strip())
+                        print("Parsed resume salary:", rs)
+                        if rs > jd_max_salary:
+                            print("→ SKIP (salary above JD upper limit)")
+                            continue
+                        else:
+                            print("→ KEEP (salary within acceptable limit)")
+                    except (TypeError, ValueError) as e:
+                        print("Salary parse error:", e)
+                        # skip resumes that have unparseable salary (can't compare)
+                        continue
+
+                # ----- Skill matching -----
                 match_result = match_resume_to_jd(resume_skills, jd_keywords)
                 
+                # ----- Experience matching & scoring -----
+                try:
+                    experience_years = int(payload.get('experience_years') or 0)
+                except Exception:
+                    experience_years = 0
+
+                if required_experience and required_experience > 0:
+                    if experience_years >= required_experience:
+                        experience_match_score = EXPERIENCE_WEIGHT
+                    else:
+                        shortfall = required_experience - experience_years
+                        penalty = min(shortfall * 5, EXPERIENCE_WEIGHT)
+                        experience_match_score = EXPERIENCE_WEIGHT - penalty
+                else:
+                    # if JD does not specify experience, give full experience weight
+                    experience_match_score = EXPERIENCE_WEIGHT
+
+                # ----- Final match percentage (skill match + experience score) -----
+                final_match_pct = match_result.get('match_percentage', 0) + experience_match_score
+
                 # ✅ Extract 'file_name' from the payload
                 file_name = (
                     payload.get('file_name')
@@ -1268,17 +1513,24 @@ def jd_match(request):
                     'id': resume.id,
                     'candidate_name': payload.get('candidate_name', 'Unknown'),
                     'email': payload.get('email', 'N/A'),
-                    'experience_years': payload.get('experience_years', 0),
+                    'experience_years': experience_years,
+                    'required_experience': required_experience,
+                    'experience_match_score': experience_match_score,
                     'cpd_level': payload.get('cpd_level', 0),
                     'skills': resume_skills,
-                    'match_percentage': match_result['match_percentage'],
+                    'match_percentage': final_match_pct,
                     'matched_skills': match_result['matched'],
                     'missing_skills': match_result['missing'],
                     'match_count': match_result['match_count'],
                     'total_required': match_result['total_required'],
                     's3_url': payload.get('s3_url', ''),
                     'file_name': file_name,
-                    'resume_text': resume_text,  # ✅ for highlighting
+                    'resume_text': resume_text,  # for highlighting
+
+                    # salary + candidate type
+                    'salary': payload.get('salary'),
+                    'salary_currency': payload.get('salary_currency'),
+                    'candidate_type': payload.get('candidate_type'),
                 }
                 
                 matches.append(candidate_data)
@@ -1292,6 +1544,7 @@ def jd_match(request):
         return Response({
             'jd_text': jd_text,
             'jd_keywords': jd_keywords,
+            'required_experience': required_experience,
             'matches': matches,
             'total_matches': len(matches),
             'success': True,
@@ -1300,7 +1553,17 @@ def jd_match(request):
     except Exception as e:
         print(f"❌ CRITICAL ERROR in jd_match: {e}")
         traceback.print_exc()
-        return Response({'error': str(e), 'success': False}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response(
+            {'error': str(e), 'success': False},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+
+
+
+
+
 
 
 # ============================================================

@@ -38,14 +38,19 @@ DEPARTMENT_MAPPING = {
 # ==========================================
 # Helper: Generate Formal PDF in Memory
 # ==========================================
+# In Backend/resume/job_views.py
+ 
+# In Backend/resume/job_views.py
+ 
 def generate_jd_pdf(data):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
    
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name='FormalTitle', fontName='Times-Bold', fontSize=18, spaceAfter=12, alignment=1)) # Center
+    styles.add(ParagraphStyle(name='FormalTitle', fontName='Times-Bold', fontSize=18, spaceAfter=12, alignment=1))
     styles.add(ParagraphStyle(name='FormalHeading', fontName='Times-Bold', fontSize=12, spaceAfter=6, spaceBefore=12))
     styles.add(ParagraphStyle(name='FormalBody', fontName='Times-Roman', fontSize=11, leading=14))
+    styles.add(ParagraphStyle(name='FormalMeta', fontName='Times-Italic', fontSize=10, leading=12, alignment=1, textColor=colors.grey))
  
     story = []
  
@@ -55,51 +60,90 @@ def generate_jd_pdf(data):
     story.append(Paragraph(title, styles['FormalTitle']))
     if company:
         story.append(Paragraph(f"{company}", styles['FormalTitle']))
-   
-    story.append(Spacer(1, 12))
+    story.append(Spacer(1, 8))
  
-    # 2. Key Details Line
+    # 2. Key Details
     details = []
     if data.get('location'): details.append(data['location'])
     if data.get('jobType'): details.append(data['jobType'])
-    if data.get('experience'): details.append(f"{data['experience']} Exp.")
-   
+    if data.get('experience'): details.append(f"{data['experience']} Exp")
     if details:
-        story.append(Paragraph(" | ".join(details), styles['FormalBody']))
-        story.append(Spacer(1, 24))
+        story.append(Paragraph(" | ".join(details), styles['FormalMeta']))
+   
+    meta_details = []
+    if data.get('salary'): meta_details.append(f"Salary: {data['salary']}")
+    if data.get('openings'): meta_details.append(f"Openings: {data['openings']}")
+    if meta_details:
+        story.append(Paragraph(" | ".join(meta_details), styles['FormalMeta']))
  
-    # 3. Sections
-    # Define the sections we want to print in order
-    sections_map = {
-        "Role Overview": ["summary", "responsibilities", "requiredSkills", "preferredSkills"],
-        "Qualifications": ["education", "specialization"],
-        "Company & Contact": ["companyDescription", "contactEmail"],
-        "Details": ["postingDate", "deadline", "workMode", "status"]
-    }
+    story.append(Spacer(1, 24))
  
-    for section_title, fields in sections_map.items():
-        # Check if section has data
-        has_data = any(data.get(f) for f in fields)
-        if not has_data: continue
+    # 3. Explicit Content Sections (Ensures nothing is skipped)
  
-        story.append(Paragraph(section_title, styles['FormalHeading']))
-       
-        for field in fields:
-            val = data.get(field)
-            if val:
-                # Format field name: "requiredSkills" -> "Required Skills"
-                label = " ".join(re.findall(r'[A-Z]?[a-z]+', field)).capitalize()
-                text = f"<b>{label}:</b> {val}"
-                # Handle newlines in text areas
-                text = text.replace("\n", "<br/>")
-                story.append(Paragraph(text, styles['FormalBody']))
-                story.append(Spacer(1, 6))
-       
+    # Summary
+    if data.get("summary"):
+        story.append(Paragraph("Job Summary", styles['FormalHeading']))
+        story.append(Paragraph(str(data["summary"]).replace("\n", "<br/>"), styles['FormalBody']))
         story.append(Spacer(1, 12))
+ 
+    # Responsibilities
+    if data.get("responsibilities"):
+        story.append(Paragraph("Role & Responsibilities", styles['FormalHeading']))
+        story.append(Paragraph(str(data["responsibilities"]).replace("\n", "<br/>"), styles['FormalBody']))
+        story.append(Spacer(1, 12))
+ 
+    # Skills
+    if data.get("requiredSkills"):
+        story.append(Paragraph("Key Skills", styles['FormalHeading']))
+        story.append(Paragraph(str(data["requiredSkills"]), styles['FormalBody']))
+        story.append(Spacer(1, 12))
+ 
+    if data.get("preferredSkills"):
+        story.append(Paragraph("Preferred Skills", styles['FormalHeading']))
+        story.append(Paragraph(str(data["preferredSkills"]).replace("\n", "<br/>"), styles['FormalBody']))
+        story.append(Spacer(1, 12))
+ 
+    # ✅ Education & Specialization
+    if data.get("education") or data.get("specialization"):
+        story.append(Paragraph("Education & Qualifications", styles['FormalHeading']))
+        if data.get("education"):
+            story.append(Paragraph(f"<b>Degree:</b> {data['education']}", styles['FormalBody']))
+        if data.get("specialization"):
+            story.append(Paragraph(f"<b>Specialization:</b> {data['specialization']}", styles['FormalBody']))
+        story.append(Spacer(1, 12))
+ 
+    # Company
+    if data.get("companyDescription"):
+        story.append(Paragraph("About the Company", styles['FormalHeading']))
+        story.append(Paragraph(str(data["companyDescription"]).replace("\n", "<br/>"), styles['FormalBody']))
+        story.append(Spacer(1, 12))
+ 
+    # Contact
+    contact_info = []
+    if data.get('hiringManagerName'): contact_info.append(f"<b>Manager:</b> {data['hiringManagerName']}")
+    if data.get('contactEmail'): contact_info.append(f"<b>Email:</b> {data['contactEmail']}")
+   
+    if contact_info:
+        story.append(Paragraph("Contact Information", styles['FormalHeading']))
+        for line in contact_info:
+            story.append(Paragraph(line, styles['FormalBody']))
+        story.append(Spacer(1, 12))
+ 
+    # Additional Details (Work Mode, Deadlines)
+    extra_info = []
+    if data.get('workMode'): extra_info.append(f"<b>Work Mode:</b> {data['workMode']}")
+    if data.get('postingDate'): extra_info.append(f"<b>Posted:</b> {data['postingDate']}")
+    if data.get('deadline'): extra_info.append(f"<b>Deadline:</b> {data['deadline']}")
+   
+    if extra_info:
+        story.append(Paragraph("Additional Details", styles['FormalHeading']))
+        for line in extra_info:
+            story.append(Paragraph(line, styles['FormalBody']))
  
     doc.build(story)
     buffer.seek(0)
     return buffer
+ 
  
 import re
  
@@ -505,6 +549,8 @@ def list_jobs(request):
                         "created_at": date_val,
                         "s3_url": s3_url,
                         "file_name": file_name,
+                        "salary": p.get("salary"),
+                        "openings": p.get("openings")
                     }
  
                     # ✅ SMART DEDUPLICATION
@@ -772,6 +818,10 @@ def find_job_and_collection(job_id):
  
  
  
+# In Backend/resume/job_views.py
+ 
+# In Backend/resume/job_views.py
+ 
 @api_view(['PUT'])
 def update_job_details(request, job_id):
     print(f"✏️ EDIT JOB REQUEST: {job_id}")
@@ -781,29 +831,50 @@ def update_job_details(request, job_id):
        
         data = request.data
        
-        # 1. Find the job (to get the old S3 key)
+        # 1. Find the job
         point, collection = find_job_and_collection(job_id)
         if not point: return Response({"error": "Job not found"}, status=404)
  
         payload = point.payload or {}
         old_s3_url = payload.get("s3_url", "")
        
-        # 2. Prepare Data for PDF Generation
-        # Merge old data with new data so the PDF is complete
+        # 2. MAP ALL FIELDS (Frontend -> PDF Data)
         pdf_data = {
-            "jobTitle": data.get("job_title", payload.get("job_title")),
-            "companyName": data.get("companyName", payload.get("companyName", "My Company")),
-            "location": data.get("location", payload.get("location")),
-            "jobType": data.get("job_type", payload.get("job_type")),
-            "experience": data.get("experience", payload.get("experience_required")),
-            "summary": data.get("job_description", payload.get("job_description")),
-            "responsibilities": "", # Add these if your edit form has them
-            "requiredSkills": ", ".join(data.get("skills", [])), # Convert list to string for PDF
-            "postingDate": payload.get("created_at"),
+            # Basic Info
+            "jobTitle": data.get("jobTitle") or data.get("job_title") or payload.get("job_title"),
+            "department": data.get("department") or payload.get("department"),
+            "location": data.get("location") or payload.get("location"),
+            "jobType": data.get("jobType") or data.get("job_type") or payload.get("job_type"),
+            "experience": data.get("experience") or data.get("experience_required") or payload.get("experience_required"),
+            "salary": data.get("salary") or payload.get("salary"),
+            "openings": data.get("openings") or payload.get("openings"),
+           
+            # Big Text Areas
+            "summary": data.get("summary") or data.get("job_description") or payload.get("job_description"),
+            "responsibilities": data.get("responsibilities") or payload.get("responsibilities"),
+            "preferredSkills": data.get("preferredSkills") or payload.get("preferredSkills"),
+           
+            # Skills (Handle List vs String)
+            "requiredSkills": ", ".join(data.get("skills", [])) if data.get("skills") else (data.get("requiredSkills") or payload.get("skills_required")),
+           
+            # Education
+            "education": data.get("education") or payload.get("education"),
+            "specialization": data.get("specialization") or payload.get("specialization"),
+           
+            # Company
+            "companyName": data.get("companyName") or payload.get("companyName"),
+            "companyDescription": data.get("companyDescription") or payload.get("companyDescription"),
+            "hiringManagerName": data.get("hiringManagerName") or payload.get("hiringManagerName"),
+            "contactEmail": data.get("contactEmail") or payload.get("contactEmail"),
+           
+            # Meta
+            "postingDate": data.get("postingDate") or payload.get("postingDate"),
+            "deadline": data.get("deadline") or payload.get("deadline"),
+            "workMode": data.get("workMode") or payload.get("workMode"),
             "status": data.get("status") or payload.get("status") or "Open"
         }
  
-        # 3. Generate NEW PDF
+        # 3. Generate PDF
         try:
             pdf_buffer = generate_jd_pdf(pdf_data)
             print("✅ New PDF generated.")
@@ -811,8 +882,7 @@ def update_job_details(request, job_id):
             print(f"❌ PDF Gen Failed: {e}")
             return Response({"error": "Failed to regenerate PDF"}, status=500)
  
-        # 4. Upload to S3 (Overwrite or New)
-        # We try to use the existing filename to save space, or create a new one
+        # 4. Upload to S3
         jd_bucket = os.getenv("S3_BUCKET_JD")
         s3_client = boto3.client(
             "s3",
@@ -821,8 +891,8 @@ def update_job_details(request, job_id):
             region_name=os.getenv("AWS_REGION", "us-east-1"),
         )
  
-        # Extract old key or make a new one
         file_key = f"jobs/edited_{job_id}_{uuid.uuid4().hex[:4]}.pdf"
+        # Try to reuse old path if possible
         if old_s3_url:
             try:
                 parsed = urlparse(old_s3_url)
@@ -830,10 +900,8 @@ def update_job_details(request, job_id):
                 if extracted_key.startswith(f"{jd_bucket}/"):
                     extracted_key = extracted_key[len(jd_bucket)+1:]
                 file_key = extracted_key
-            except:
-                pass
+            except: pass
  
-        # Upload
         s3_client.upload_fileobj(
             pdf_buffer,
             jd_bucket,
@@ -841,19 +909,16 @@ def update_job_details(request, job_id):
             ExtraArgs={"ContentType": "application/pdf"}
         )
         new_s3_url = f"https://{jd_bucket}.s3.amazonaws.com/{file_key}"
-        print(f"✅ Re-uploaded to S3: {new_s3_url}")
  
-        # 5. Update Qdrant Data
+        # 5. Update Qdrant (Save everything)
         updates = {
-            "job_title": pdf_data["jobTitle"],
-            "job_description": pdf_data["summary"],
-            "location": pdf_data["location"],
-            "job_type": pdf_data["jobType"],
-            "skills_required": data.get("skills", payload.get("skills_required")),
+            **pdf_data,
+            "job_title": pdf_data["jobTitle"],          
+            "job_description": pdf_data["summary"],    
             "experience_required": pdf_data["experience"],
-            "s3_url": new_s3_url, # Update URL just in case name changed
-            "file_name": file_key,
-            "status": pdf_data["status"],
+            "skills_required": data.get("skills") or payload.get("skills_required"),
+            "s3_url": new_s3_url,
+            "file_name": file_key
         }
  
         qdrant_client.set_payload(
@@ -862,12 +927,11 @@ def update_job_details(request, job_id):
             points=[job_id]
         )
  
-        return Response({"message": "Job and PDF updated successfully"}, status=200)
+        return Response({"message": "Job updated successfully"}, status=200)
  
     except Exception as e:
         print(f"❌ EDIT ERROR: {str(e)}")
         return Response({"error": str(e)}, status=500)
-   
  
  
 # In Backend/resume/job_views.py
@@ -894,5 +958,6 @@ def get_job_details(request, job_id):
  
     except Exception as e:
         return Response({"error": str(e)}, status=500)
+ 
  
  

@@ -204,7 +204,7 @@ const HiringManagerSidebar = ({ setCollapsed }) => {
             <div>
               <p className="font-semibold">{user.name || "Loading..."}</p>
               <p className="text-xs text-teal-200 truncate">
-                {user.department || "No Department"}
+                 {user.email || "No Email"}
               </p>
             </div>
           )}

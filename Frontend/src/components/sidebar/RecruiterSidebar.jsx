@@ -190,7 +190,10 @@ const RecruiterSidebar = ({ setCollapsed }) => {
               <p className="font-semibold text-white">
                 {user.name || "Loading..."}
               </p>
-              <p className="text-xs text-teal-100">{user.role || "Recruiter"}</p>
+              <p className="text-xs text-teal-100 truncate">
+                  {user.email || "No Email"}
+              </p>
+
             </div>
           )}
           <LogOut

@@ -108,7 +108,19 @@ const PublishedJDs = () => {
     }
   };
  
-  const handleToggleStatus = async (job) => {
+  // ✅ 1. NEW STATE: Track the status modal
+  const [statusModal, setStatusModal] = useState({ show: false, job: null });
+ 
+  // ✅ 2. BUTTON CLICK: Just opens the modal
+  const handleToggleStatus = (job) => {
+    setStatusModal({ show: true, job });
+  };
+ 
+  // ✅ 3. CONFIRM ACTION: Actually calls the API
+  const confirmStatusChange = async () => {
+    const job = statusModal.job;
+    if (!job) return;
+ 
     try {
         const res = await fetch(`${API_BASE_URL}/jobs/status/${job.id}/`, {
             method: "PATCH",
@@ -123,6 +135,9 @@ const PublishedJDs = () => {
  
         setMyJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: newStatus } : j));
         setDeptJobs(prev => prev.map(j => j.id === job.id ? { ...j, status: newStatus } : j));
+       
+        // Close Modal on Success
+        setStatusModal({ show: false, job: null });
  
     } catch (e) {
         alert(`Could not update status: ${e.message}`);
@@ -340,10 +355,45 @@ const PublishedJDs = () => {
         </div>
       )}
  
+      {/* ✅ STATUS CHANGE CONFIRMATION MODAL */}
+      {statusModal.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 transform transition-all scale-100">
+             <div className="flex flex-col items-center text-center">
+                <div className="bg-[#E0F7FA] p-4 rounded-full mb-4">
+                    <AlertTriangle className="text-[#21B0BE]" size={32} />
+                </div>
+                <h3 className="text-2xl font-bold text-[#0F394D] mb-2">Change Status?</h3>
+                <p className="text-gray-500 mb-6 px-4 text-sm">
+                  Are you sure you want to change the status of <br/>
+                  <span className="font-bold text-[#0F394D]">{statusModal.job?.title}</span>?
+                  <br/><br/>
+                  This will switch it from <span className="font-bold">{statusModal.job?.status}</span> to <span className="font-bold">{statusModal.job?.status === "Open" ? "Closed" : "Open"}</span>.
+                </p>
+                <div className="flex gap-3 w-full">
+                  <button
+                    onClick={() => setStatusModal({ show: false, job: null })}
+                    className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold hover:bg-gray-50 transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmStatusChange}
+                    className="flex-1 py-3 rounded-xl bg-[#0F394D] text-white font-semibold hover:bg-[#092532] shadow-lg transition"
+                  >
+                    Yes, Change
+                  </button>
+                </div>
+             </div>
+          </div>
+        </div>
+      )}
+     
     </div>
   );
 };
  
 export default PublishedJDs;
+ 
  
  

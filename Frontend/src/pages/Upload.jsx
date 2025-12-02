@@ -1,16 +1,13 @@
+// src/pages/Upload.jsx
 import React, { useState } from "react";
+import { UploadCloud, Loader, CheckCircle, XCircle, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import {
-  UploadCloud,
-  Loader,
-  CheckCircle,
-  XCircle,
-  Info,
-} from "lucide-react";
+ 
 import RecruiterSidebar from "../components/sidebar/RecruiterSidebar";
+import GlobalHeader from "../components/sidebar/GlobalHeader";
 import { API_BASE_URL } from "../config";
  
-// SHA-256 helper
+// ---------------- SHA-256 HELPER ----------------
 const calculateFileHash = async (file) => {
   const buffer = await file.arrayBuffer();
   const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
@@ -21,9 +18,12 @@ const calculateFileHash = async (file) => {
  
 const Upload = () => {
   const navigate = useNavigate();
+ 
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
+ 
+  // Modal
   const [modalState, setModalState] = useState({
     isOpen: false,
     title: "",
@@ -31,10 +31,16 @@ const Upload = () => {
     type: "info",
   });
  
+  // NEW FIELDS (from Option A)
+  const [salary, setSalary] = useState("");
+  const [salaryCurrency, setSalaryCurrency] = useState("EUR");
+  const [candidateType, setCandidateType] = useState("external");
+ 
   const handleFileChange = (e) => {
     setFiles(Array.from(e.target.files));
   };
  
+  // ---------------- MAIN UPLOAD FUNCTION ----------------
   const handleSubmit = async (e) => {
     e.preventDefault();
  
@@ -58,8 +64,11 @@ const Upload = () => {
     try {
       for (const file of files) {
         setUploadStatus(`Checking ${file.name}…`);
+ 
+        // compute hash
         const hash = await calculateFileHash(file);
  
+        // duplicate check
         const checkRes = await fetch(`${API_BASE_URL}/check-hashes/`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -73,9 +82,18 @@ const Upload = () => {
           continue;
         }
  
+        // Upload
         setUploadStatus(`Uploading ${file.name}…`);
+ 
         const formData = new FormData();
         formData.append("resume_file", file);
+        formData.append("file_hash", hash);
+ 
+        // extra metadata
+        if (salary) formData.append("salary", salary);
+        if (salaryCurrency) formData.append("salary_currency", salaryCurrency);
+        if (candidateType)
+          formData.append("candidate_type", candidateType);
  
         const uploadRes = await fetch(`${API_BASE_URL}/upload-resume/`, {
           method: "POST",
@@ -85,16 +103,17 @@ const Upload = () => {
         const data = await uploadRes.json();
  
         if (!uploadRes.ok) {
-          errorFiles.push(`${file.name}: ${data.error}`);
+          errorFiles.push(`${file.name}: ${data.error || "Upload failed"}`);
         } else {
           successFiles.push(file.name);
         }
       }
  
-      let modal = { isOpen: true, type: "success" };
+      // Prepare modal
+      let modal = { isOpen: true, type: "success", message: "" };
  
       if (successFiles.length)
-        modal.message = `Uploaded:\n- ${successFiles.join("\n- ")}\n\n`;
+        modal.message += `Uploaded:\n- ${successFiles.join("\n- ")}\n\n`;
  
       if (duplicateFiles.length) {
         modal.message += `Skipped duplicates:\n- ${duplicateFiles.join("\n- ")}\n\n`;
@@ -130,34 +149,29 @@ const Upload = () => {
   };
  
   return (
-    <>
-      <div className="min-h-screen flex bg-[#F5F5F5]">
-       
-        {/* Sidebar */}
+    <div className="min-h-screen flex flex-col bg-[#F5F5F5]">
+ 
+      {/* GLOBAL HEADER */}
+      <GlobalHeader />
+ 
+      {/* LAYOUT BELOW HEADER */}
+      <div className="flex flex-1 pt-[24px]">
+ 
+        {/* SIDEBAR */}
         <RecruiterSidebar active="Upload" />
  
-        {/* Main section */}
-        <main className="flex-1 ml-72 p-10 relative overflow-y-auto">
-         
-          {/* Back button */}
-          <button
-            onClick={() => navigate("/")}
-            className="absolute top-8 right-8 bg-gradient-to-r from-[#073C4D] to-[#1AB8C0]
-                       text-white px-7 py-2 rounded-full shadow-lg hover:shadow-xl
-                       transition"
-          >
-            Back
-          </button>
+        {/* MAIN CONTENT */}
+        <main className="flex-1 p-10 ml-72 relative">
  
-          {/* Card */}
-          <div className="max-w-lg mx-auto bg-white shadow-xl p-10 rounded-2xl border">
+          {/* CARD */}
+          <div className="max-w-lg mx-auto bg-white shadow-xl p-10 rounded-2xl border mt-4">
             <h2 className="text-2xl font-bold text-center mb-6 text-[#0F394D]">
               Upload Resume
             </h2>
  
             <form onSubmit={handleSubmit} className="space-y-6">
  
-              {/* ⭐ FIXED — CENTERED UPLOAD BOX */}
+              {/* UPLOAD BOX */}
               <div
                 className="
                   border-2 border-dashed border-[#21B0BE]/40
@@ -199,28 +213,66 @@ const Upload = () => {
                 </label>
               </div>
  
-              {/* Status */}
-              {uploading ? (
-                <div className="flex items-center justify-center p-2 bg-gray-100 rounded-lg text-[#073C4D]">
-                  <Loader className="animate-spin w-4 h-4 mr-2" />
-                  {uploadStatus}
+              {/* SALARY + CURRENCY */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Expected / Current Salary
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={salary}
+                    onChange={(e) => setSalary(e.target.value)}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-[#21B0BE] focus:outline-none"
+                    placeholder="Enter amount"
+                  />
                 </div>
-              ) : (
-                files.length > 0 && (
-                  <div className="p-3 bg-gray-100 rounded-lg">
-                    <strong>Selected Files:</strong>
-                    {files.map((f, i) => (
-                      <p key={i}>{f.name}</p>
-                    ))}
-                  </div>
-                )
+ 
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Currency
+                  </label>
+                  <select
+                    value={salaryCurrency}
+                    onChange={(e) => setSalaryCurrency(e.target.value)}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-[#21B0BE] focus:outline-none"
+                  >
+                    <option value="EUR">EUR</option>
+                    <option value="GBP">GBP</option>
+                    <option value="INR">INR</option>
+                    <option value="AUD">AUD</option>
+                    <option value="USD">USD</option>
+                  </select>
+                </div>
+              </div>
+ 
+              {/* CANDIDATE TYPE */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Candidate Type
+                </label>
+                <select
+                  value={candidateType}
+                  onChange={(e) => setCandidateType(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-[#21B0BE] focus:outline-none"
+                >
+                  <option value="internal">Internal</option>
+                  <option value="external">External</option>
+                </select>
+              </div>
+ 
+              {/* STATUS */}
+              {uploadStatus && (
+                <p className="text-sm text-gray-600">{uploadStatus}</p>
               )}
  
-              {/* Upload button */}
+              {/* SUBMIT BUTTON */}
               <button
                 type="submit"
                 disabled={uploading || !files.length}
-                className={`w-full py-3 rounded-lg text-white shadow
+                className={`
+                  w-full py-3 rounded-lg text-white shadow
                   ${
                     uploading || !files.length
                       ? "bg-gray-400 cursor-not-allowed"
@@ -235,7 +287,7 @@ const Upload = () => {
         </main>
       </div>
  
-      {/* Modal */}
+      {/* MODAL */}
       <CustomAlertModal
         isOpen={modalState.isOpen}
         title={modalState.title}
@@ -243,10 +295,11 @@ const Upload = () => {
         type={modalState.type}
         onClose={() => setModalState({ ...modalState, isOpen: false })}
       />
-    </>
+    </div>
   );
 };
  
+// ---------------- MODAL COMPONENT ----------------
 const CustomAlertModal = ({ isOpen, title, message, type, onClose }) => {
   if (!isOpen) return null;
  
@@ -280,6 +333,5 @@ const CustomAlertModal = ({ isOpen, title, message, type, onClose }) => {
 };
  
 export default Upload;
- 
  
  

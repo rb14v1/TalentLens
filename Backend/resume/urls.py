@@ -43,44 +43,45 @@ urlpatterns = [
     # path('jd/drafts/', views.get_drafts, name='get_drafts'),
     # path('jd/published/', views.get_published_jds, name='get_published_jds'),
    
-
+ 
     # ✅ NEW — JD DRAFT SYSTEM
     path('jd/draft/save/', job_views.save_jd_draft, name='save_jd_draft'),
     path('jd/drafts/<str:email>/', job_views.get_jd_drafts, name='get_jd_drafts'),
     path('jd/draft/delete/<int:draft_id>/', job_views.delete_jd_draft, name='delete_jd_draft'),
     path('jd/draft/publish/<int:draft_id>/', job_views.publish_jd, name='publish_jd'),
     path('jobs/view/<str:job_id>/', job_views.view_jd, name='view_jd'),
-    
-
-
+   
+ 
+ 
     # ========== UTILITIES ==========
     path('validate_word/', views.validate_word, name='validate_word'),
     path("register/", views.register_user),
     path("login/", views.login_user),
     path('jobs/save/', job_views.save_job_description, name='save-job'),
     path('jobs/delete/<str:job_id>/', job_views.delete_job_description, name='delete-job'),
-    path('jobs/list/', job_views.get_all_jobs, name='list-jobs'),
+    # path('jobs/list/', job_views.get_all_jobs, name='list-jobs'),
     path('user/profile/', views.user_profile, name='user-profile'),
     path('jobs/list/', job_views.list_jobs, name='list_jobs'),
     path('jobs/save/', job_views.publish_jd, name='publish_jd'),
     path('jobs/delete/<str:job_id>/', job_views.delete_jd, name='delete_jd'),
     path('jobs/status/<str:job_id>/', job_views.update_jd_status, name='update_jd_status'),
-
+ 
     path('jobs/download/<str:job_id>/', job_views.download_jd, name='download_jd'),
     path('jobs/view/<str:job_id>/', job_views.view_jd, name='view_jd'),
     path('jobs/status/<str:job_id>/', job_views.update_jd_status, name='update_jd_status'),
-
+ 
     path('jobs/details/<str:job_id>/', job_views.get_job_details, name='get_job_details'),
     path('jobs/update/<str:job_id>/', job_views.update_job_details, name='update_job_details'),
  
  
     # Add these lines in the urlpatterns list
-
+ 
 # ========== CONFIRMED MATCHES (Resume Selection) ==========
 path('confirmed-matches/save/', views.confirm_resume_matches, name='confirm_matches'),
 path('confirmed-matches/list/', views.get_confirmed_matches, name='get_confirmed_matches'),
 path('match_keywords/', views.match_resume_keywords, name='match_resume_keywords'),
  
 ]
+ 
  
  

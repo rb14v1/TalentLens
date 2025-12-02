@@ -18,6 +18,7 @@ import PublishedJDs from "./pages/PublishedJDs"; // ✅ Correctly Imported
 import Drafts from "./pages/Drafts";
 import MatchedResume from "./pages/MatchedResume";
 import ViewJD from "./pages/ViewJD";
+import ManagerHome from "./pages/ManagerHome";
  
 function App() {
   const [jdData, setJdData] = useState(null);
@@ -42,6 +43,7 @@ function App() {
       <Route path="/managerpage" element={<Managerpage />} />
       <Route path="/drafts" element={<Drafts />} />
       <Route path="/matchedresume" element={<MatchedResume />} />
+      <Route path="/managerhome" element={<ManagerHome />} />
  
       {/* ✅ Correct FIXED ROUTES */}
       <Route path="/view-job/:id" element={<ViewJD />} />

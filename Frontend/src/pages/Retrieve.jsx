@@ -1,13 +1,12 @@
+// src/pages/Retrieve.jsx
+ 
 import React, { useState } from "react";
-import {
-  User,
-  Search,
-  XCircle,
-  X
-} from "lucide-react";
+import { User, Search, XCircle, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../config";
+ 
 import RecruiterSidebar from "../components/sidebar/RecruiterSidebar";
+import GlobalHeader from "../components/sidebar/GlobalHeader";
  
 function Retrieve() {
   const navigate = useNavigate();
@@ -24,14 +23,13 @@ function Retrieve() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
  
-  // ⭐ NEW STATES FOR HIGHLIGHTS
   const [showHighlights, setShowHighlights] = useState(false);
   const [highlightedText, setHighlightedText] = useState("");
  
   const getPdfProxyUrl = (fileUrl) =>
     `${API_BASE_URL}/proxy_resume/?file_url=${encodeURIComponent(fileUrl)}`;
  
-  // ⭐ Fetch Matched Keywords
+  // ⭐ Fetch matched keywords
   const fetchMatchedKeywords = async (resume) => {
     try {
       const response = await fetch(`${API_BASE_URL}/match_keywords/`, {
@@ -39,7 +37,7 @@ function Retrieve() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           resume_skills: resume.skills || [],
-          search_text: searchTerm || ""
+          search_text: searchTerm || "",
         }),
       });
  
@@ -69,9 +67,7 @@ function Retrieve() {
  
       const res = await fetch(`${API_BASE_URL}/search/`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
  
@@ -136,7 +132,7 @@ function Retrieve() {
     const fileName =
       resume.file_name ||
       resume.readable_file_name ||
-      (resume.s3_url ? resume.s3_url.split("/").pop() : null) ||
+      resume.s3_url?.split("/").pop() ||
       resume.raw_payload?.file_name ||
       resume.raw_payload?.readable_file_name;
  
@@ -151,7 +147,6 @@ function Retrieve() {
     window.open(viewUrl, "_blank", "noopener,noreferrer");
   };
  
-  // ⭐ When modal opens, fetch matched keywords
   const openModal = (resume) => {
     setSelectedResume(resume);
     fetchMatchedKeywords(resume);
@@ -162,184 +157,181 @@ function Retrieve() {
     setMatchedKeywords([]);
   };
  
-  const handleDownload = (resume) => {
-    const url = resume.s3_url || resume.raw_payload?.s3_url;
-    if (!url) {
-      alert("No resume file URL available.");
-      return;
+  // ⭐⭐⭐ REAL LOCAL PDF DOWNLOAD ⭐⭐⭐
+  const handleDownload = async (resume) => {
+    try {
+      const url = resume.s3_url || resume.raw_payload?.s3_url;
+      if (!url) {
+        alert("No resume file URL available.");
+        return;
+      }
+ 
+      const proxyUrl = getPdfProxyUrl(url);
+ 
+      const response = await fetch(proxyUrl);
+      if (!response.ok) throw new Error("Failed to download file");
+ 
+      const blob = await response.blob();
+ 
+      const fileName =
+        resume.file_name ||
+        resume.s3_url?.split("/").pop() ||
+        "resume.pdf";
+ 
+      const link = document.createElement("a");
+      link.href = window.URL.createObjectURL(blob);
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      console.error("Download error:", error);
+      alert("Failed to download PDF.");
     }
-    const proxy = getPdfProxyUrl(url);
-    window.open(proxy, "_blank", "noopener,noreferrer");
   };
  
-  // ⭐ HIGHLIGHT LOGIC
+  // ⭐ Highlight logic
   const openHighlights = () => {
-  if (!selectedResume) return;
+    if (!selectedResume) return;
  
-  let resumeText =
-    selectedResume.raw_payload?.resume_text ||
-    selectedResume.raw_payload?.text ||
-    "";
+    let resumeText =
+      selectedResume.raw_payload?.resume_text ||
+      selectedResume.raw_payload?.text ||
+      "";
  
-  // 1️⃣ Remove excessive blank lines
-  resumeText = resumeText.replace(/\n{3,}/g, "\n\n");
+    resumeText = resumeText.replace(/\n{3,}/g, "\n\n");
+    resumeText = resumeText
+      .replace(/\n\s*•\s*/g, "\n• ")
+      .replace(/•\s*\n/g, "• ");
+    resumeText = resumeText.replace(/^\s*[•.]?\s*$/gm, "");
+    resumeText = resumeText.replace(/\s*•\s*/g, "• ");
+    resumeText = resumeText.trim();
  
-  // 2️⃣ Clean bullet formatting
-  resumeText = resumeText
-    .replace(/\n\s*•\s*/g, "\n• ")     // ensure bullet stays inline
-    .replace(/•\s*\n/g, "• ");        // prevent bullet alone on a line
+    let processed = resumeText;
  
-  // 3️⃣ Remove lines containing only dots or stray characters
-  resumeText = resumeText.replace(/^\s*[•.]?\s*$/gm, "");
+    matchedKeywords.forEach((kw) => {
+      const regex = new RegExp(`\\b${kw}\\b`, "gi");
+      processed = processed.replace(
+        regex,
+        `<mark style="background: yellow; padding: 2px; border-radius: 3px;">${kw}</mark>`
+      );
+    });
  
-  // 4️⃣ Normalize spacing around bullets
-  resumeText = resumeText.replace(/\s*•\s*/g, "• ");
- 
-  // 5️⃣ Trim excess spaces
-  resumeText = resumeText.trim();
- 
-  // 🔥 Highlight Matched Keywords
-  let processed = resumeText;
- 
-  matchedKeywords.forEach((kw) => {
-    const regex = new RegExp(`\\b${kw}\\b`, "gi");
-    processed = processed.replace(
-      regex,
-      `<mark style="background: yellow; padding: 2px; border-radius: 3px;">${kw}</mark>`
-    );
-  });
- 
-  setHighlightedText(processed);
-  setShowHighlights(true);
-};
- 
+    setHighlightedText(processed);
+    setShowHighlights(true);
+  };
  
   const closeHighlights = () => setShowHighlights(false);
  
   return (
-    <div className="min-h-screen flex bg-gradient-to-br from-[#F8FAFC] via-[#E9F1F4] to-[#E4EEF4] relative">
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-[#F8FAFC] via-[#E9F1F4] to-[#E4EEF4]">
  
-      <RecruiterSidebar active="Retrieve" setCollapsed={setCollapsed} />
+      <GlobalHeader />
  
-      <main
-        className={`flex-1 p-10 relative overflow-y-auto transition-all duration-300 ${
-          collapsed ? "ml-20" : "ml-72"
-        }`}
-      >
-        {/* BACK BUTTON */}
-        <button
-          onClick={() => navigate("/")}
-          className="absolute top-8 right-8 bg-gradient-to-r from-[#0F394D] to-[#21B0BE] text-white px-6 py-3 rounded-full shadow-md hover:opacity-90 transition-all flex items-center gap-2 z-30"
+      <div className="flex flex-1 pt-[24px]">
+        <RecruiterSidebar active="Retrieve" setCollapsed={setCollapsed} />
+ 
+        <main
+          className={`flex-1 p-8 relative overflow-y-auto transition-all duration-300 ${
+            collapsed ? "ml-20" : "ml-72"
+          }`}
         >
-          Back
-        </button>
+          <div className="relative z-10 max-w-6xl mx-auto mt-4">
+            <h1 className="text-3xl font-bold text-center text-[#0F394D] mb-6">
+              Retrieve Resumes
+            </h1>
  
-        {/* Content */}
-        <div className="relative z-10 max-w-6xl mx-auto">
-          <h1 className="text-3xl font-bold text-center text-[#0F394D] mb-6">
-            Retrieve
-          </h1>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div>
+                <label className="block text-gray-700 mb-1 font-medium">Search</label>
+                <div className="flex items-center border border-gray-300 rounded-lg p-2 bg-white/70 backdrop-blur">
+                  <Search className="text-gray-400 mr-2" size={18} />
+                  <input
+                    type="text"
+                    placeholder="Search Resume..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full bg-transparent outline-none"
+                  />
+                </div>
+              </div>
  
-          {/* Filters */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div>
-              <label className="block text-gray-700 mb-1 font-medium">
-                Search
-              </label>
-              <div className="flex items-center border border-gray-300 rounded-lg p-2 bg-white/70 backdrop-blur">
-                <Search className="text-gray-400 mr-2" size={18} />
-                <input
-                  type="text"
-                  placeholder="Search Resume..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full bg-transparent outline-none"
-                />
+              <div>
+                <label className="block text-gray-700 mb-1 font-medium">CPD Level</label>
+                <select
+                  value={cpdLevel}
+                  onChange={(e) => setCpdLevel(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg p-2 bg-white/70 outline-none"
+                >
+                  <option value="">Select CPD Level</option>
+                  <option value="1">Level 1</option>
+                  <option value="2">Level 2</option>
+                  <option value="3">Level 3</option>
+                  <option value="4">Level 4</option>
+                  <option value="5">Level 5</option>
+                  <option value="6">Level 6</option>
+                </select>
               </div>
             </div>
  
-            <div>
-              <label className="block text-gray-700 mb-1 font-medium">
-                CPD Level
-              </label>
-              <select
-                value={cpdLevel}
-                onChange={(e) => setCpdLevel(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg p-2 bg-white/70 outline-none"
+            <div className="flex gap-4 mb-6">
+              <button
+                onClick={handleSearch}
+                className="bg-[#0F394D] text-white px-6 py-2 rounded-lg hover:bg-[#15556b] transition flex items-center gap-2"
               >
-                <option value="">Select CPD Level</option>
-                <option value="1">Level 1</option>
-                <option value="2">Level 2</option>
-                <option value="3">Level 3</option>
-                <option value="4">Level 4</option>
-                <option value="5">Level 5</option>
-                <option value="6">Level 6</option>
-              </select>
+                <Search size={16} /> Search
+              </button>
+ 
+              <button
+                onClick={handleClear}
+                className="bg-gray-200 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-300 flex items-center transition"
+              >
+                <XCircle className="mr-1" size={18} /> Clear
+              </button>
             </div>
-          </div>
  
-          {/* Search + Clear */}
-          <div className="flex gap-4 mb-8">
-            <button
-              onClick={handleSearch}
-              className="bg-[#0F394D] text-white px-6 py-2 rounded-lg hover:bg-[#15556b] transition flex items-center gap-2"
-            >
-              <Search size={16} /> Search
-            </button>
- 
-            <button
-              onClick={handleClear}
-              className="bg-gray-200 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-300 flex items-center transition"
-            >
-              <XCircle className="mr-1" size={18} /> Clear
-            </button>
-          </div>
- 
-          {/* Results */}
-          {loading ? (
-            <p className="text-center text-gray-500">Searching resumes…</p>
-          ) : resumes.length ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {resumes.map((resume) => (
-                <div
-                  key={resume.id}
-                  className="bg-white/80 border shadow-md rounded-2xl p-5 hover:shadow-lg transition"
-                >
-                  <div className="flex items-center mb-3">
-                    <div className="bg-[#21B0BE]/20 p-2 rounded-full mr-3">
-                      <User className="text-[#0F394D]" size={24} />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-800">
-                        {resume.candidate_name}
-                      </h3>
-                      <p className="text-sm text-gray-500">{resume.role}</p>
-                    </div>
-                  </div>
- 
-                  <p className="text-sm text-gray-600 mb-4">
-                    <span className="font-medium">CPD Level:</span>{" "}
-                    {resume.cpdLevel}
-                  </p>
- 
-                  <button
-                    onClick={() => openModal(resume)}
-                    className="w-full bg-[#0F394D] text-white py-2 rounded-lg hover:bg-[#15556b] transition"
+            {loading ? (
+              <p className="text-center text-gray-500">Searching resumes…</p>
+            ) : resumes.length ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {resumes.map((resume) => (
+                  <div
+                    key={resume.id}
+                    className="bg-white/80 border shadow-md rounded-2xl p-5 hover:shadow-lg transition"
                   >
-                    View Resume
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-gray-500 text-center mt-10">
-              No resumes to display.
-            </p>
-          )}
-        </div>
-      </main>
+                    <div className="flex items-center mb-3">
+                      <div className="bg-[#21B0BE]/20 p-2 rounded-full mr-3">
+                        <User className="text-[#0F394D]" size={24} />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-800">
+                          {resume.candidate_name}
+                        </h3>
+                        <p className="text-sm text-gray-500">{resume.role}</p>
+                      </div>
+                    </div>
  
-      {/* MAIN RESUME MODAL */}
+                    <p className="text-sm text-gray-600 mb-4">
+                      <span className="font-medium">CPD Level:</span>{" "}
+                      {resume.cpdLevel}
+                    </p>
+ 
+                    <button
+                      onClick={() => openModal(resume)}
+                      className="w-full bg-[#0F394D] text-white py-2 rounded-lg hover:bg-[#15556b] transition"
+                    >
+                      View Resume
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500 text-center mt-10">No resumes to display.</p>
+            )}
+          </div>
+        </main>
+      </div>
+ 
       {selectedResume && (
         <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 w-full md:w-[720px] relative shadow-2xl overflow-y-auto max-h-[90vh]">
@@ -350,7 +342,6 @@ function Retrieve() {
               <X size={22} />
             </button>
  
-            {/* HEADER */}
             <div className="flex items-center mb-4">
               <div className="bg-[#21B0BE]/20 p-2 rounded-full mr-3">
                 <User className="text-[#0F394D]" size={28} />
@@ -363,7 +354,6 @@ function Retrieve() {
               </div>
             </div>
  
-            {/* INFO */}
             <div className="text-sm text-gray-700 space-y-1 mb-4">
               <p>
                 <span className="font-medium">CPD Level:</span>{" "}
@@ -379,7 +369,6 @@ function Retrieve() {
               </p>
             </div>
  
-            {/* MATCH SCORE */}
             <div className="mb-5">
               <p className="font-medium text-gray-700 mb-2">Match Score:</p>
               <div className="w-full bg-gray-200 rounded-full h-4">
@@ -397,7 +386,6 @@ function Retrieve() {
               </p>
             </div>
  
-            {/* Experience */}
             <div className="mb-5">
               <p className="font-medium text-gray-700 mb-1">Experience:</p>
               <p className="text-gray-600 text-sm">
@@ -405,7 +393,6 @@ function Retrieve() {
               </p>
             </div>
  
-            {/* Skills */}
             <div className="mb-5">
               <p className="font-medium text-gray-700 mb-2">Skills:</p>
               <div className="flex flex-wrap gap-2">
@@ -424,7 +411,6 @@ function Retrieve() {
               </div>
             </div>
  
-            {/* Matched Keywords */}
             <div className="mb-6">
               <p className="font-medium text-gray-700 mb-2">Matched Keywords:</p>
               <div className="flex flex-wrap gap-2">
@@ -443,7 +429,6 @@ function Retrieve() {
               </div>
             </div>
  
-            {/* BUTTONS */}
             <div className="flex gap-3">
               <button
                 onClick={() => openFullView(selectedResume)}
@@ -452,27 +437,24 @@ function Retrieve() {
                 Open Full View
               </button>
  
-              {/* ⭐ NEW HIGHLIGHTS BUTTON */}
               <button
-  onClick={openHighlights}
-  className="flex-1 bg-black text-white py-2 rounded-lg font-medium hover:bg-[#1a1a1a] transition"
->
-  Highlights
-</button>
+                onClick={openHighlights}
+                className="flex-1 bg-black text-white py-2 rounded-lg font-medium hover:bg-[#1a1a1a] transition"
+              >
+                Highlights
+              </button>
  
- 
-              <button
+              {/* <button
                 onClick={() => handleDownload(selectedResume)}
                 className="flex-1 px-4 py-2 bg-white border border-gray-300 rounded-lg text-[#053245] hover:shadow transition"
               >
                 Download
-              </button>
+              </button> */}
             </div>
           </div>
         </div>
       )}
  
-      {/* ⭐ HIGHLIGHTS MODAL */}
       {showHighlights && (
         <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-[999] p-4">
           <div className="bg-white rounded-2xl p-6 w-full md:w-[720px] shadow-2xl max-h-[90vh] overflow-y-auto relative">
