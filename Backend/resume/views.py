@@ -1214,6 +1214,19 @@ def extract_jd(request):
         )
 
 
+import re
+import traceback
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+
+# Make sure these helper functions are imported/defined in this module:
+# - extract_text_from_pdf_bytes(file_bytes)
+# - extract_jd_keywords(text, top_k=25)
+# - get_all_points() # returns list of qdrant points/objects with .payload and .id
+# - match_resume_to_jd(resume_skills, jd_keywords) -> returns dict with keys: match_percentage, matched, missing, match_count, total_required
+
 @csrf_exempt
 @api_view(['POST'])
 def jd_match(request):
@@ -1226,7 +1239,8 @@ def jd_match(request):
     jd_text = None
     jd_keywords = []
 
-    # ===== JD SALARY RANGE for filtering (e.g. "500000-700000") =====
+
+    # ===== JD SALARY RANGE =====
     salary_str = request.data.get("salary") or request.POST.get("salary")
     jd_min_salary = jd_max_salary = None
     if salary_str:
@@ -1245,9 +1259,11 @@ def jd_match(request):
         except (TypeError, ValueError):
             jd_min_salary = jd_max_salary = None
 
+
     # ===== Experience extraction defaults =====
     required_experience = 0
-    EXPERIENCE_WEIGHT = 20  # keeps same weighting as your earlier snippet
+    EXPERIENCE_WEIGHT = 20
+
 
     try:
         # ===== STEP 1: Get JD text =====
@@ -1264,7 +1280,6 @@ def jd_match(request):
                     {'error': f'PDF extraction failed: {str(e)}'},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
-        
         elif request.data and 'jd_text' in request.data:
             print("[1] Processing raw JD text...")
             jd_text = request.data.get('jd_text', '')
@@ -1275,175 +1290,77 @@ def jd_match(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # ===== NEW: If salary not provided explicitly, try to extract from jd_text =====
-        # Strategy:
-        # 1) Prefer explicit 'salary' keyword lines: look for "salary" and extract numbers near it.
-        # 2) Require at least 5 digits for a single salary number to avoid matching dates like '12' or '2025'.
+
+        # ===== AUTO-SALARY EXTRACTION =====
         if jd_min_salary is None and jd_max_salary is None and jd_text:
             try:
                 import re
-
                 jt = jd_text.lower()
                 jt_norm = jt.replace("₹", " ").replace("rs.", " ").replace("rs", " ").replace("inr", " ")
 
-                # helper regex: numbers with optional commas (requires >=5 digits for single matches)
-                range_pattern_near = re.compile(r'(\d{1,3}(?:[,\d]{0,}\d)?)\s*[-–—]\s*(\d{1,3}(?:[,\d]{0,}\d)?)')
-                # stricter range that requires each side to be at least 5 digits when commas removed
+
                 strict_range = re.compile(r'(\d{5,}(?:[,\d]*\d)?)\s*[-–—]\s*(\d{5,}(?:[,\d]*\d)?)')
-                # single number (at least 5 digits)
-                single_pattern_strict = re.compile(r'(\d{5,}(?:[,\d]*\d)?)')
+                single_pattern = re.compile(r'(\d{5,}(?:[,\d]*\d)?)')
 
-                found = False
 
-                # 1) Search near 'salary' token first
-                salary_idx = jt_norm.find("salary")
-                if salary_idx != -1:
-                    window_start = max(0, salary_idx - 80)
-                    window_end = min(len(jt_norm), salary_idx + 160)
-                    window = jt_norm[window_start:window_end]
+                m = strict_range.search(jt_norm)
+                if m:
+                    jd_min_salary = float(m.group(1).replace(",", ""))
+                    jd_max_salary = float(m.group(2).replace(",", ""))
+                else:
+                    m2 = single_pattern.search(jt_norm)
+                    if m2:
+                        v = float(m2.group(1).replace(",", ""))
+                        jd_min_salary = jd_max_salary = v
 
-                    # try strict range in the window
-                    m = strict_range.search(window)
-                    if m:
-                        a = m.group(1).replace(",", "").strip()
-                        b = m.group(2).replace(",", "").strip()
-                        try:
-                            jd_min_salary = float(a)
-                            jd_max_salary = float(b)
-                            if jd_min_salary > jd_max_salary:
-                                jd_min_salary, jd_max_salary = jd_max_salary, jd_min_salary
-                            found = True
-                            print(f"🔎 Extracted salary range (near 'salary'): {jd_min_salary}-{jd_max_salary}")
-                        except:
-                            jd_min_salary = jd_max_salary = None
 
-                    # if no strict range, try any reasonable range pattern in window
-                    if not found:
-                        m2 = range_pattern_near.search(window)
-                        if m2:
-                            a = m2.group(1).replace(",", "").strip()
-                            b = m2.group(2).replace(",", "").strip()
-                            try:
-                                # ensure numeric length sanity (>=5 digits) after removing commas
-                                if len(a.replace(",", "").strip()) >= 5 or len(b.replace(",", "").strip()) >= 5:
-                                    jd_min_salary = float(a)
-                                    jd_max_salary = float(b)
-                                    if jd_min_salary > jd_max_salary:
-                                        jd_min_salary, jd_max_salary = jd_max_salary, jd_min_salary
-                                    found = True
-                                    print(f"🔎 Extracted salary range (near 'salary', fallback): {jd_min_salary}-{jd_max_salary}")
-                            except:
-                                jd_min_salary = jd_max_salary = None
-
-                    # try single strict number near 'salary'
-                    if not found:
-                        m3 = single_pattern_strict.search(window)
-                        if m3:
-                            v = m3.group(1).replace(",", "").strip()
-                            try:
-                                vnum = float(v)
-                                jd_min_salary = jd_max_salary = vnum
-                                found = True
-                                print(f"🔎 Extracted single salary (near 'salary'): {vnum}")
-                            except:
-                                jd_min_salary = jd_max_salary = None
-
-                # 2) If we didn't find anything near 'salary', try a stricter scan of the whole text
-                if not found:
-                    # first try strict range over entire text
-                    m_full = strict_range.search(jt_norm)
-                    if m_full:
-                        a = m_full.group(1).replace(",", "").strip()
-                        b = m_full.group(2).replace(",", "").strip()
-                        try:
-                            jd_min_salary = float(a)
-                            jd_max_salary = float(b)
-                            if jd_min_salary > jd_max_salary:
-                                jd_min_salary, jd_max_salary = jd_max_salary, jd_min_salary
-                            found = True
-                            print(f"🔎 Extracted salary range (full text strict): {jd_min_salary}-{jd_max_salary}")
-                        except:
-                            jd_min_salary = jd_max_salary = None
-
-                # 3) Final fallback: single large number in whole text (>=5 digits)
-                if not found:
-                    m_single = single_pattern_strict.search(jt_norm)
-                    if m_single:
-                        v = m_single.group(1).replace(",", "").strip()
-                        try:
-                            vnum = float(v)
-                            jd_min_salary = jd_max_salary = vnum
-                            found = True
-                            print(f"🔎 Extracted single salary (full text fallback): {vnum}")
-                        except:
-                            jd_min_salary = jd_max_salary = None
-
-                # If nothing found, leave jd_min_salary and jd_max_salary as None
             except Exception as ex:
-                print("⚠️ JD salary extraction failed:", ex)
-                jd_min_salary = jd_max_salary = None
+                print("⚠️ Salary extraction failed:", ex)
 
-        # ===== NEW: Extract required experience from JD text =====
+
+        # ===== ✅ IMPROVED EXPERIENCE EXTRACTION FROM JD =====
         try:
             import re as _re
-            exp_regex = r"[Ee]xperience[:\s]+(\d+)\+?\s*years"
-            m_exp = _re.search(exp_regex, jd_text)
-            if m_exp:
-                try:
-                    required_experience = int(m_exp.group(1))
-                    print(f"🟩 REQUIRED EXPERIENCE FOUND: {required_experience} years")
-                except Exception:
-                    required_experience = 0
+            
+            # Pattern 1: "3-5 years Exp" or "3 - 5 years experience"
+            range_pattern = r"(\d+)\s*[-–—]\s*(\d+)\s*years?\s*(?:exp|experience)"
+            m_range = _re.search(range_pattern, jd_text, flags=_re.IGNORECASE)
+            
+            if m_range:
+                required_experience = int(m_range.group(1))  # Take minimum value
+                print(f"🟩 REQUIRED EXPERIENCE FOUND (range): {m_range.group(1)}-{m_range.group(2)} years, using minimum: {required_experience}")
             else:
-                # fallback: try looser patterns like "X years experience" or "minimum X years"
-                loose_patterns = [
-                    r"(\d+)\s+years\s+experience",
-                    r"minimum\s+of\s+(\d+)\s+years",
-                    r"at\s+least\s+(\d+)\s+years"
+                # Pattern 2: "Experience: 5 years" or "5+ years experience"
+                exp_patterns = [
+                    r"[Ee]xperience[:\s]+(\d+)\+?\s*years?",
+                    r"(\d+)\+?\s*years?\s+(?:of\s+)?experience",
+                    r"minimum\s+of\s+(\d+)\s*years?",
+                    r"at\s+least\s+(\d+)\s*years?",
+                    r"(\d+)\s*years?\s*(?:exp|experience)"
                 ]
-                found_exp = False
-                for lp in loose_patterns:
-                    mm = _re.search(lp, jd_text, flags=_re.IGNORECASE)
+                
+                for pattern in exp_patterns:
+                    mm = _re.search(pattern, jd_text, flags=_re.IGNORECASE)
                     if mm:
-                        try:
-                            required_experience = int(mm.group(1))
-                            print(f"🟩 REQUIRED EXPERIENCE (loose pattern): {required_experience} years")
-                            found_exp = True
-                            break
-                        except Exception:
-                            continue
-                if not found_exp:
-                    print("⚠️ No explicit experience requirement found in JD.")
+                        required_experience = int(mm.group(1))
+                        print(f"🟩 REQUIRED EXPERIENCE FOUND: {required_experience} years")
+                        break
         except Exception as ex:
-            print("⚠️ Experience extraction failed:", ex)
+            print(f"⚠️ Experience extraction error: {ex}")
             required_experience = 0
+
 
         # ===== STEP 2: Extract keywords =====
         print("[2] Extracting JD keywords...")
-        try:
-            jd_keywords = extract_jd_keywords(jd_text, top_k=25)
-            print(f"✅ Found {len(jd_keywords)} keywords: {jd_keywords[:5]}...")
-        except Exception as e:
-            print(f"❌ Keyword extraction failed: {e}")
-            return Response(
-                {'error': f'Keyword extraction failed: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        
-        # ===== STEP 3: Get all resumes =====
-        print("[3] Fetching all resumes from Qdrant...")
-        try:
-            all_resumes = get_all_points()
-            print(f"✅ Found {len(all_resumes)} resumes in Qdrant")
-        except Exception as e:
-            print(f"❌ Failed to fetch resumes: {e}")
-            return Response(
-                {'error': f'Failed to fetch resumes: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        
+        jd_keywords = extract_jd_keywords(jd_text, top_k=25)
+
+
+        # ===== STEP 3: Fetch resumes =====
+        print("[3] Fetching resumes...")
+        all_resumes = get_all_points()
+
+
         # ===== STEP 4: Match resumes =====
-        print("[4] Matching resumes against JD...")
         matches = []
         
         for idx, resume in enumerate(all_resumes, 1):
@@ -1453,39 +1370,30 @@ def jd_match(request):
                 if isinstance(resume_skills, str):
                     resume_skills = [resume_skills]
 
-                # DEBUG: log what we're actually comparing
-                print(f"\n--- Resume #{idx} ---")
-                print("JD salary string (frontend):", salary_str)
-                print("JD min/max (after parse/extract):", jd_min_salary, jd_max_salary)
-                print("Resume salary (raw):", payload.get("salary"))
 
-                # ----- SALARY FILTER: only compare against JD upper limit -----
-                # Requirement: include resumes whose salary is <= jd_max_salary
+                # SALARY FILTER
                 resume_salary = payload.get("salary")
                 if jd_max_salary is not None and resume_salary is not None:
                     try:
                         rs = float(str(resume_salary).replace(",", "").strip())
-                        print("Parsed resume salary:", rs)
                         if rs > jd_max_salary:
-                            print("→ SKIP (salary above JD upper limit)")
                             continue
-                        else:
-                            print("→ KEEP (salary within acceptable limit)")
-                    except (TypeError, ValueError) as e:
-                        print("Salary parse error:", e)
-                        # skip resumes that have unparseable salary (can't compare)
+                    except:
                         continue
 
-                # ----- Skill matching -----
+
+                # SKILL MATCHING
                 match_result = match_resume_to_jd(resume_skills, jd_keywords)
-                
-                # ----- Experience matching & scoring -----
+
+
+                # EXPERIENCE MATCH
                 try:
                     experience_years = int(payload.get('experience_years') or 0)
-                except Exception:
+                except:
                     experience_years = 0
 
-                if required_experience and required_experience > 0:
+
+                if required_experience > 0:
                     if experience_years >= required_experience:
                         experience_match_score = EXPERIENCE_WEIGHT
                     else:
@@ -1493,30 +1401,40 @@ def jd_match(request):
                         penalty = min(shortfall * 5, EXPERIENCE_WEIGHT)
                         experience_match_score = EXPERIENCE_WEIGHT - penalty
                 else:
-                    # if JD does not specify experience, give full experience weight
                     experience_match_score = EXPERIENCE_WEIGHT
 
-                # ----- Final match percentage (skill match + experience score) -----
-                final_match_pct = match_result.get('match_percentage', 0) + experience_match_score
 
-                # ✅ Extract 'file_name' from the payload
+                # ===== ✅ FIXED SCORING LOGIC =====
+                # Get skill percentage from match_result
+                skill_pct = match_result.get('match_percentage', 0) or 0
+                
+                # 🔥 FIX: Normalize skill percentage to max 100% BEFORE calculation
+                skill_pct_norm = min(skill_pct, 100.0)
+                
+                # Calculate final match percentage using normalized skill_pct
+                # Skill contributes (100 - EXPERIENCE_WEIGHT)% and experience contributes EXPERIENCE_WEIGHT%
+                final_match_pct = (skill_pct_norm * (100 - EXPERIENCE_WEIGHT) / 100.0) + experience_match_score
+                
+                # Round to 2 decimal places
+                final_match_pct = round(float(final_match_pct), 2)
+                # ===== END FIXED SCORING LOGIC =====
+
+
+                # BUILD CANDIDATE DATA
                 file_name = (
                     payload.get('file_name')
                     or payload.get('readable_file_name')
                     or payload.get('s3_url', '').split('/')[-1]
                 )
 
-                # ✅ NEW: include resume_text so frontend can highlight
-                resume_text = payload.get('resume_text', '') or ''
-                
+
                 candidate_data = {
                     'id': resume.id,
                     'candidate_name': payload.get('candidate_name', 'Unknown'),
                     'email': payload.get('email', 'N/A'),
                     'experience_years': experience_years,
-                    'required_experience': required_experience,
+                    'required_experience': required_experience,  # ✅ Include in each resume
                     'experience_match_score': experience_match_score,
-                    'cpd_level': payload.get('cpd_level', 0),
                     'skills': resume_skills,
                     'match_percentage': final_match_pct,
                     'matched_skills': match_result['matched'],
@@ -1525,45 +1443,40 @@ def jd_match(request):
                     'total_required': match_result['total_required'],
                     's3_url': payload.get('s3_url', ''),
                     'file_name': file_name,
-                    'resume_text': resume_text,  # for highlighting
-
-                    # salary + candidate type
+                    'resume_text': payload.get('resume_text', ''),
                     'salary': payload.get('salary'),
                     'salary_currency': payload.get('salary_currency'),
                     'candidate_type': payload.get('candidate_type'),
                 }
                 
                 matches.append(candidate_data)
-            
+
+
             except Exception as e:
-                print(f"  ❌ Error processing resume {idx}: {e}")
+                print(f"⚠️ Error processing resume {idx}: {e}")
                 continue
         
+        # Sort by match percentage descending
         matches.sort(key=lambda x: x['match_percentage'], reverse=True)
         
         return Response({
             'jd_text': jd_text,
             'jd_keywords': jd_keywords,
-            'required_experience': required_experience,
+            'required_experience_min': required_experience,
+            'required_experience_max': None,
             'matches': matches,
             'total_matches': len(matches),
             'success': True,
         }, status=status.HTTP_200_OK)
     
     except Exception as e:
-        print(f"❌ CRITICAL ERROR in jd_match: {e}")
+        print(f"❌ CRITICAL ERROR: {e}")
+        import traceback
         traceback.print_exc()
         return Response(
             {'error': str(e), 'success': False},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-
-
-
-
-
-
-
 
 
 # ============================================================
@@ -1811,6 +1724,9 @@ def confirm_resume_matches(request):
 # ==========================================
 # API: Get Confirmed Matches for Hiring Manager
 # ==========================================
+# ==========================================
+# API: Get Confirmed Matches for Hiring Manager
+# ==========================================
 @api_view(['GET'])
 def get_confirmed_matches(request):
     """
@@ -1827,16 +1743,16 @@ def get_confirmed_matches(request):
     ]
     """
     print("=== GET CONFIRMED MATCHES CALLED ===")
-
+ 
     try:
         # Still check user is logged in (optional – you can relax this too)
         user_id = request.session.get('user_id')
         if not user_id:
             return Response({"error": "Unauthorized"}, status=401)
-
+ 
         user = AppUser.objects.get(id=user_id)
         print(f"🔍 Fetching matches for user: {user.email} ({user.department})")
-
+ 
         # ✅ TEMP: show ALL matches, do not filter by department
         matches = (
             ConfirmedMatch.objects
@@ -1844,12 +1760,12 @@ def get_confirmed_matches(request):
             .select_related('confirmed_by')
             .order_by('-confirmed_at')
         )
-
+ 
         # Group by JD
         jd_groups = {}
         for match in matches:
             jd_id = match.jd_id
-
+ 
             if jd_id not in jd_groups:
                 jd_groups[jd_id] = {
                     "jd_id": jd_id,
@@ -1857,7 +1773,7 @@ def get_confirmed_matches(request):
                     "jd_department": match.jd_department,
                     "resumes": []
                 }
-
+ 
             jd_groups[jd_id]["resumes"].append({
                 "id": match.id,
                 "resume_id": match.resume_id,
@@ -1869,17 +1785,20 @@ def get_confirmed_matches(request):
                 "resume_s3_url": match.resume_s3_url,
                 "resume_file_name": match.resume_file_name,
                 "status": match.status,
+                "hiring_stage": match.hiring_stage,
+                "hiring_stage": match.hiring_stage or "Applied",
                 "confirmed_at": match.confirmed_at.strftime("%Y-%m-%d %H:%M"),
                 "confirmed_by": match.confirmed_by.name,
             })
-
+ 
         result = list(jd_groups.values())
         print(f"✅ Returning {len(result)} JD groups with confirmed matches")
         return Response(result, status=200)
-
+ 
     except Exception as e:
         print(f"❌ Error fetching confirmed matches: {e}")
         return Response({"error": str(e)}, status=500)
+ 
     
 @api_view(["POST"])
 def match_resume_keywords(request):

@@ -960,4 +960,29 @@ def get_job_details(request, job_id):
         return Response({"error": str(e)}, status=500)
  
  
+ # In Backend/resume/job_views.py
+ 
+from .models import ConfirmedMatch
+ 
+@csrf_exempt
+@api_view(['PATCH'])
+def update_hiring_stage(request, match_id):
+    try:
+        new_stage = request.data.get("stage")
+        if not new_stage:
+            return Response({"error": "Stage is required"}, status=400)
+ 
+        # Get the match from SQL Database
+        match = ConfirmedMatch.objects.get(id=match_id)
+       
+        # Save the new stage
+        match.hiring_stage = new_stage
+        match.save()
+ 
+        return Response({"message": "Stage updated", "hiring_stage": new_stage}, status=200)
+ 
+    except ConfirmedMatch.DoesNotExist:
+        return Response({"error": "Match not found"}, status=404)
+    except Exception as e:
+        return Response({"error": str(e)}, status=500)
  

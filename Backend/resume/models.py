@@ -81,7 +81,7 @@ class JDDraft(models.Model):
         return f"JD Draft: {self.title} ({self.status})"
  
 # Add this at the end of your models.py file
-
+ 
 class ConfirmedMatch(models.Model):
     """
     Stores recruiter-confirmed resume matches for a specific JD.
@@ -90,7 +90,7 @@ class ConfirmedMatch(models.Model):
     jd_id = models.CharField(max_length=255)  # Job Description ID from Qdrant
     jd_title = models.CharField(max_length=255)
     jd_department = models.CharField(max_length=100)
-    
+   
     # Resume details (since resumes are in Qdrant, we store key info)
     resume_id = models.CharField(max_length=255)  # Qdrant point ID
     candidate_name = models.CharField(max_length=255)
@@ -98,19 +98,22 @@ class ConfirmedMatch(models.Model):
     match_score = models.CharField(max_length=10, blank=True, null=True)  # e.g., "58%"
     matched_skills = models.JSONField(default=list)  # List of matched skills
     experience_years = models.IntegerField(default=0)
-    
+   
     # Metadata
     confirmed_by = models.ForeignKey(AppUser, on_delete=models.CASCADE, related_name="confirmed_matches")
     confirmed_at = models.DateTimeField(auto_now_add=True)
     status = models.CharField(max_length=50, default="pending")  # pending, reviewed, shortlisted, rejected
-    
+   
     # S3 link to resume PDF
     resume_s3_url = models.URLField(blank=True, null=True)
     resume_file_name = models.CharField(max_length=500, blank=True, null=True)
-    
+   
     class Meta:
         db_table = 'confirmed_matches'
         unique_together = ('jd_id', 'resume_id')  # Prevent duplicate assignments
-    
+   
     def __str__(self):
         return f"{self.candidate_name} -> {self.jd_title}"
+    hiring_stage = models.CharField(max_length=100, default="Applied")
+ 
+ 

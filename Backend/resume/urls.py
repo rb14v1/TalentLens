@@ -80,7 +80,7 @@ urlpatterns = [
 path('confirmed-matches/save/', views.confirm_resume_matches, name='confirm_matches'),
 path('confirmed-matches/list/', views.get_confirmed_matches, name='get_confirmed_matches'),
 path('match_keywords/', views.match_resume_keywords, name='match_resume_keywords'),
- 
+path('confirmed-matches/stage/<int:match_id>/', job_views.update_hiring_stage, name='update_hiring_stage'),
 ]
  
  

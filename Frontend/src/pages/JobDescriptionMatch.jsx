@@ -31,7 +31,10 @@ const JobDescriptionMatch = () => {
   const [showHighlights, setShowHighlights] = useState(false);
 
   // NEW: required experience extracted from backend JD processing
+  // Keep single value for backward compatibility and add min/max
   const [requiredExperience, setRequiredExperience] = useState(null);
+  const [requiredExperienceMin, setRequiredExperienceMin] = useState(null);
+  const [requiredExperienceMax, setRequiredExperienceMax] = useState(null);
 
   const handleFileChange = (e) => setJdFile(e.target.files[0]);
 
@@ -81,9 +84,28 @@ const JobDescriptionMatch = () => {
       setMatchCount(matchData.total_matches || 0);
 
       // NEW: set required experience from backend (if present)
+      // Backend may return required_experience_min / max OR required_experience for older clients.
+      const minVal =
+        matchData.required_experience_min !== undefined
+          ? matchData.required_experience_min
+          : matchData.required_experience !== undefined
+          ? matchData.required_experience
+          : null;
+
+      const maxVal =
+        matchData.required_experience_max !== undefined
+          ? matchData.required_experience_max
+          : null;
+
+      setRequiredExperienceMin(minVal !== null ? minVal : null);
+      setRequiredExperienceMax(maxVal !== undefined ? maxVal : null);
+
+      // Keep single backward-compatible field too
       setRequiredExperience(
         matchData.required_experience !== undefined
           ? matchData.required_experience
+          : minVal !== null
+          ? minVal
           : null
       );
 
@@ -100,6 +122,7 @@ const JobDescriptionMatch = () => {
         department: matchData.department || "engineering_it",
       });
     } catch (err) {
+      console.error("Match error:", err);
       setError("Something went wrong. Please try again.");
     }
 
@@ -192,7 +215,6 @@ const JobDescriptionMatch = () => {
   };
 
   // ========== HIGHLIGHT HELPERS ==========
-
   const buildHighlightedResume = (resume) => {
     // pull text from backend payload safely
     let text =
@@ -368,12 +390,21 @@ const JobDescriptionMatch = () => {
                   </p>
 
                   {/* NEW: display required experience if provided by backend */}
-                  {requiredExperience !== null && (
+                  {(requiredExperienceMin !== null ||
+                    requiredExperience !== null) && (
                     <div className="mt-3">
                       <p className="text-sm text-gray-600">
                         <strong>Required Experience:</strong>{" "}
                         <span className="text-[#053245] font-semibold">
-                          {requiredExperience}+ years
+                          {requiredExperienceMin !== null
+                            ? requiredExperienceMin +
+                              (requiredExperienceMax
+                                ? ` - ${requiredExperienceMax}`
+                                : "+")
+                            : requiredExperience !== null
+                            ? `${requiredExperience}+`
+                            : ""}
+                          {" years"}
                         </span>
                       </p>
                     </div>
@@ -497,20 +528,35 @@ const JobDescriptionMatch = () => {
                         </p>
 
                         {/* NEW: show required vs candidate experience comparison */}
-                        {requiredExperience !== null && (
+                        {(requiredExperienceMin !== null ||
+                          requiredExperience !== null) && (
                           <p className="text-sm mb-3">
-                            <strong>Requirement:</strong> {requiredExperience}+
-                            yrs{" "}
+                            <strong>Requirement:</strong>{" "}
+                            {requiredExperienceMin !== null
+                              ? requiredExperienceMin +
+                                (requiredExperienceMax
+                                  ? ` - ${requiredExperienceMax}`
+                                  : "+")
+                              : `${requiredExperience}+`}
+                            {" yrs "}
                             {Number(resume.experience_years || 0) >=
-                            Number(requiredExperience) ? (
+                            Number(
+                              requiredExperienceMin !== null
+                                ? requiredExperienceMin
+                                : requiredExperience || 0
+                            ) ? (
                               <span className="text-green-600 font-semibold ml-2">
                                 ✓ Meets
                               </span>
                             ) : (
                               <span className="text-red-600 font-semibold ml-2">
                                 ✗ Short by{" "}
-                                {Number(requiredExperience) -
-                                  Number(resume.experience_years || 0)}{" "}
+                                {Number(
+                                  (requiredExperienceMin !== null
+                                    ? requiredExperienceMin
+                                    : requiredExperience || 0) -
+                                    Number(resume.experience_years || 0)
+                                )}{" "}
                                 yrs
                               </span>
                             )}
