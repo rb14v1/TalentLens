@@ -46,8 +46,77 @@ TalentLens is an enterprise-grade recruitment platform designed to automate resu
 ---
 
 ## 📂 Folder Structure
+### Backend
+```
+Backend/
+├── mysite/
+│   ├── settings.py
+│   ├── urls.py
+│   ├── wsgi.py
+│   └── asgi.py
+├── resume/
+│   ├── migrations/
+│   ├── services/
+│   │   ├── embedding_service.py
+│   │   ├── extract_data.py
+│   │   ├── jd_keyword_service.py
+│   │   ├── pdf_parser.py
+│   │   ├── qdrant_service.py
+│   │   └── s3_service.py
+│   ├── models.py
+│   ├── views.py
+│   ├── job_views.py
+│   ├── urls.py
+│   ├── apps.py
+│   └── __init__.py
+├── .env
+├── .gitignore
+├── db.sqlite3
+├── manage.py
+└── requirements.txt
+```
 
-
+### Frontend
+```
+Frontend/
+├── public/
+├── src/
+│   ├── api/
+│   ├── assets/
+│   ├── components/
+│   │   └── sidebar/
+│   │       ├── HiringManagerSidebar.jsx
+│   │       └── RecruiterSidebar.jsx
+│   ├── pages/
+│   │   ├── AnalyticsDetails.jsx
+│   │   ├── Dashboard.jsx
+│   │   ├── Description.jsx
+│   │   ├── Drafts.jsx
+│   │   ├── JobDescriptionMatch.jsx
+│   │   ├── Login.jsx
+│   │   ├── ManagerDashboard.jsx
+│   │   ├── Managerpage.jsx
+│   │   ├── MatchedResume.jsx
+│   │   ├── Preview.jsx
+│   │   ├── PublishedJDs.jsx
+│   │   ├── RecruiterDashboard.jsx
+│   │   ├── RecruiterHome.jsx
+│   │   ├── Register.jsx
+│   │   ├── Retrieve.jsx
+│   │   ├── Upload.jsx
+│   │   ├── ViewJD.jsx
+│   │   └── ViewResume.jsx
+│   ├── App.jsx
+│   ├── config.js
+│   ├── index.css
+│   └── main.jsx
+├── .gitignore
+├── eslint.config.js
+├── index.html
+├── package.json
+├── vite.config.js
+└── README.md
+```
 ---
 
 ## ⚙️ Setup Instructions
