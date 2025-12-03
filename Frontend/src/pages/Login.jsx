@@ -56,7 +56,7 @@ function Login() {
       {/* LEFT GRADIENT PANEL */}
       <div className="hidden md:flex w-1/3 bg-gradient-to-b from-[#0F394D] to-[#21B0BE] items-center justify-center text-white p-8">
         <div>
-          <h1 className="text-4xl font-bold mb-4">Welcome Back!</h1>
+          <h1 className="text-4xl font-bold mb-4">TalentLens</h1>
           <p className="text-lg text-teal-100">
             Manage your recruitment process efficiently.
           </p>
@@ -96,7 +96,7 @@ function Login() {
 
             <button
               type="submit"
-              className="w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-semibold transition"
+              className="w-full mt-6 bg-teal-600 hover:bg-teal-700 text-white py-2 rounded-lg font-semibold transition"
             >
               Login
             </button>

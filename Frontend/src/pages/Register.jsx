@@ -81,7 +81,7 @@ function Register() {
  
       {/* LEFT PANEL */}
 <div className="hidden md:flex w-1/3 bg-gradient-to-b from-[#004e92] via-[#015f72] to-[#00A8A8] text-white flex-col justify-center px-10">
-<h1 className="text-5xl font-bold">ProMatch</h1>
+<h1 className="text-5xl font-bold">TalentLens</h1>
 <p className="text-lg mt-3 opacity-90">Smart Hiring Platform</p>
 </div>
  
