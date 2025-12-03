@@ -1,12 +1,16 @@
+// src/pages/Description.jsx
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { API_BASE_URL } from "../config";
+import GlobalHeader from "../components/sidebar/GlobalHeader";
+import HiringManagerSidebar from "../components/sidebar/HiringManagerSidebar";
 import { CheckCircle } from "lucide-react";
- 
+
 // ----- DEFAULTS -----
 const DEFAULT_COMPANY_NAME = "Version 1";
-const DEFAULT_COMPANY_DESC = "Version 1 is an Irish technology company founded in 1996, specializing in international management consulting, software asset management, software development, cloud computing, and outsourcing services. The company is known for its strategic partnerships with technology leaders such as Oracle, Microsoft, and AWS, and focuses on delivering technology-enabled solutions that transform businesses. Version 1 has a strong commitment to customer success, empowered people, and a strong organization, guided by core values that emphasize truthfulness, accountability, and resilience.";
- 
+const DEFAULT_COMPANY_DESC =
+  "Version 1 is an Irish technology company founded in 1996, specializing in international management consulting, software asset management, software development, cloud computing, and outsourcing services. The company is known for its strategic partnerships with technology leaders such as Oracle, Microsoft, and AWS, and focuses on delivering technology-enabled solutions that transform businesses. Version 1 has a strong commitment to customer success, empowered people, and a strong organization, guided by core values that emphasize truthfulness, accountability, and resilience.";
+
 // ----- Country-City-Currency location data -----
 const locations = [
   { country: "Ireland", city: "Dublin", currency: "EUR" },
@@ -22,30 +26,28 @@ const locations = [
   { country: "Australia", city: "Sydney (Chatswood, NSW)", currency: "AUD" },
   { country: "United States", city: "New York", currency: "USD" },
 ];
- 
+
 const getCurrencyForLocation = (locStr) => {
-  const entry = locations.find(
-    (loc) => `${loc.country} - ${loc.city}` === locStr
-  );
+  const entry = locations.find((loc) => `${loc.country} - ${loc.city}` === locStr);
   return entry ? entry.currency : "";
 };
- 
+
 const Description = ({ setJdData, jdData }) => {
   const navigate = useNavigate();
   const location = useLocation();
- 
+
   const [sectionIndex, setSectionIndex] = useState(0);
- 
+
   // Edit Mode State
   const [isEdit, setIsEdit] = useState(false);
   const [editId, setEditId] = useState(null);
- 
+
   // Success modal
   const [showSuccessModal, setShowSuccessModal] = useState(false);
- 
+
   // Simple validation error message
   const [validationError, setValidationError] = useState("");
- 
+
   const [formData, setFormData] = useState(
     location.state?.jdData ||
       jdData || {
@@ -67,66 +69,67 @@ const Description = ({ setJdData, jdData }) => {
         companyDescription: DEFAULT_COMPANY_DESC, // was ""
         hiringManagerName: "",
         contactEmail: "",
-        postingDate: new Date().toISOString().split('T')[0],        deadline: "",
+        postingDate: new Date().toISOString().split("T")[0],
+        deadline: "",
         workMode: "",
         status: "Open",
       }
   );
- 
+
   // Fetch Data from Qdrant when editing
   useEffect(() => {
     const initEdit = async () => {
-        if (location.state?.isEdit && location.state?.jobData) {
-            setIsEdit(true);
-            const job = location.state.jobData; // Data from the dashboard card
-            setEditId(job.id);
- 
-            try {
-                const res = await fetch(`${API_BASE_URL}/jobs/details/${job.id}/`, { credentials: "include" });
-               
-                if(res.ok) {
-                    const data = await res.json();
-                   
-                    setFormData({
-                        // ✅ FIX: Add '|| job.title' etc. as fallbacks
-                        jobTitle: data.jobTitle || data.job_title || data.title || job.title || "",
-                        department: data.department || data.dept || job.department || "",
-                        jobType: data.jobType || data.job_type || data.type || job.type || "",
-                        location: data.location || job.location || "",
-                        salaryCurrency: getCurrencyForLocation(data.location || job.location || "") || "",
-                       
-                        summary: data.summary || data.job_description || data.description || job.description || "",
-                        experience: data.experience || data.experience_required || data.exp || "",
-                       
-                        requiredSkills: Array.isArray(data.requiredSkills) ? data.requiredSkills.join(", ") :
-                                       (Array.isArray(data.skills) ? data.skills.join(", ") :
-                                       (Array.isArray(data.skills_required) ? data.skills_required.join(", ") :
-                                       (data.requiredSkills || data.skills || data.skills_required || ""))),
-                       
-                        salary: data.salary || job.salary || "",
-                        openings: data.openings || job.openings || "",
-                       
-                        responsibilities: data.responsibilities || "",
-                        preferredSkills: data.preferredSkills || "",
-                        education: data.education || "",
-                        specialization: data.specialization || "",
-                       
-                        hiringManagerName: data.hiringManagerName || data.hiring_manager || job.creator_name || "",
-                        contactEmail: data.contactEmail || data.contact_email || data.email || job.email || "",
-                       
-                        postingDate: data.postingDate || data.posting_date || new Date().toISOString().split('T')[0],
-                        deadline: data.deadline || "",
-                        workMode: data.workMode || data.work_mode || "",
-                       
-                        // Status fallback to ensure it doesn't revert
-                        status: data.status || job.status || "Open",
- 
-                        // Company Defaults
-                        companyName: data.companyName || data.company || DEFAULT_COMPANY_NAME,
-                        companyDescription: data.companyDescription || DEFAULT_COMPANY_DESC,
-                    });
-                }
-            } catch (e) {
+      if (location.state?.isEdit && location.state?.jobData) {
+        setIsEdit(true);
+        const job = location.state.jobData; // Data from the dashboard card
+        setEditId(job.id);
+
+        try {
+          const res = await fetch(`${API_BASE_URL}/jobs/details/${job.id}/`, { credentials: "include" });
+
+          if (res.ok) {
+            const data = await res.json();
+
+            setFormData({
+              // ✅ FIX: Add '|| job.title' etc. as fallbacks
+              jobTitle: data.jobTitle || data.job_title || data.title || job.title || "",
+              department: data.department || data.dept || job.department || "",
+              jobType: data.jobType || data.job_type || data.type || job.type || "",
+              location: data.location || job.location || "",
+              salaryCurrency: getCurrencyForLocation(data.location || job.location || "") || "",
+
+              summary: data.summary || data.job_description || data.description || job.description || "",
+              experience: data.experience || data.experience_required || data.exp || "",
+
+              requiredSkills: Array.isArray(data.requiredSkills) ? data.requiredSkills.join(", ") :
+                (Array.isArray(data.skills) ? data.skills.join(", ") :
+                  (Array.isArray(data.skills_required) ? data.skills_required.join(", ") :
+                    (data.requiredSkills || data.skills || data.skills_required || ""))),
+
+              salary: data.salary || job.salary || "",
+              openings: data.openings || job.openings || "",
+
+              responsibilities: data.responsibilities || "",
+              preferredSkills: data.preferredSkills || "",
+              education: data.education || "",
+              specialization: data.specialization || "",
+
+              hiringManagerName: data.hiringManagerName || data.hiring_manager || job.creator_name || "",
+              contactEmail: data.contactEmail || data.contact_email || data.email || job.email || "",
+
+              postingDate: data.postingDate || data.posting_date || new Date().toISOString().split('T')[0],
+              deadline: data.deadline || "",
+              workMode: data.workMode || data.work_mode || "",
+
+              // Status fallback to ensure it doesn't revert
+              status: data.status || job.status || "Open",
+
+              // Company Defaults
+              companyName: data.companyName || data.company || DEFAULT_COMPANY_NAME,
+              companyDescription: data.companyDescription || DEFAULT_COMPANY_DESC,
+            });
+          }
+        } catch (e) {
           console.error("Error fetching job details:", e);
           setFormData((prev) => ({
             ...prev,
@@ -136,15 +139,15 @@ const Description = ({ setJdData, jdData }) => {
           }));
         }
       }
- 
+
       if (location.state?.editSection !== undefined) {
         setSectionIndex(location.state.editSection);
       }
     };
- 
+
     initEdit();
   }, [location.state]);
- 
+
   const sections = [
     { id: 1, name: "Basic Information" },
     { id: 2, name: "Role Overview" },
@@ -152,7 +155,7 @@ const Description = ({ setJdData, jdData }) => {
     { id: 4, name: "Company & Contact" },
     { id: 5, name: "Additional Settings" },
   ];
- 
+
   const dropdownOptions = {
     department: [
       "Engineering / IT",
@@ -165,11 +168,11 @@ const Description = ({ setJdData, jdData }) => {
     workMode: ["On-site", "Hybrid", "Remote"],
     status: ["Open", "Closed", "Draft"],
   };
- 
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setValidationError(""); // clear error as user types
- 
+
     if (name === "location") {
       const currency = getCurrencyForLocation(value);
       setFormData((prev) => ({
@@ -181,9 +184,9 @@ const Description = ({ setJdData, jdData }) => {
       setFormData((prev) => ({ ...prev, [name]: value }));
     }
   };
- 
+
   // ─── Validation helpers ────────────────────────────────────────────────
- 
+
   const sectionFields = [
     [
       ["Job Title", "jobTitle"],
@@ -214,7 +217,7 @@ const Description = ({ setJdData, jdData }) => {
       ["Status", "status"],
     ],
   ];
- 
+
   const validateSection = (index) => {
     const fields = sectionFields[index];
     for (const [label, name] of fields) {
@@ -228,7 +231,7 @@ const Description = ({ setJdData, jdData }) => {
     setValidationError("");
     return true;
   };
- 
+
   const validateAll = () => {
     for (let i = 0; i < sectionFields.length; i++) {
       if (!validateSection(i)) {
@@ -238,10 +241,10 @@ const Description = ({ setJdData, jdData }) => {
     }
     return true;
   };
- 
+
   const handleNext = () => {
     if (!validateSection(sectionIndex)) return;
- 
+
     if (sectionIndex < sections.length - 1) {
       setSectionIndex(sectionIndex + 1);
     } else {
@@ -249,18 +252,18 @@ const Description = ({ setJdData, jdData }) => {
       navigate("/preview", { state: { jdData: formData } });
     }
   };
- 
+
   const handleUpdate = async () => {
     if (!editId) return;
- 
+
     // all sections must be valid before update
     if (!validateAll()) return;
- 
+
     const skillsArray = formData.requiredSkills
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
- 
+
     const payload = {
       ...formData,
       job_title: formData.jobTitle,
@@ -268,7 +271,7 @@ const Description = ({ setJdData, jdData }) => {
       experience_required: formData.experience,
       skills: skillsArray,
     };
- 
+
     try {
       const res = await fetch(`${API_BASE_URL}/jobs/update/${editId}/`, {
         method: "PUT",
@@ -276,15 +279,15 @@ const Description = ({ setJdData, jdData }) => {
         body: JSON.stringify(payload),
         credentials: "include",
       });
- 
+
       if (!res.ok) throw new Error("Update failed");
- 
+
       setShowSuccessModal(true);
     } catch (e) {
       alert("Update failed: " + e.message);
     }
   };
- 
+
   const renderField = (label, name, type = "text") => {
     // if (type === "textarea") {
     //   return (
@@ -328,12 +331,12 @@ const Description = ({ setJdData, jdData }) => {
         </div>
       );
     }
- 
+
     if (name === "salary") {
       return (
         <div className="flex items-center justify-between gap-6 w-full mb-4">
           <label className="text-base font-semibold text-[#0D1F29] w-1/5 text-right">
-              {label} <span className="text-red-500">*</span> {/* ✅ Added Asterisk */}
+            {label} <span className="text-red-500">*</span> {/* ✅ Added Asterisk */}
           </label>
           <div className="flex-1 flex items-center border border-gray-300 rounded-md bg-white focus-within:ring-2 focus-within:ring-[#21B0BE]">
             {formData.salaryCurrency && (
@@ -354,7 +357,7 @@ const Description = ({ setJdData, jdData }) => {
         </div>
       );
     }
- 
+
     const isDropdown = [
       "department",
       "jobType",
@@ -362,19 +365,19 @@ const Description = ({ setJdData, jdData }) => {
       "workMode",
       "status",
     ].includes(name);
- 
+
     return (
       <div className="flex items-center justify-between gap-6 w-full mb-4">
         <label className="text-base font-semibold text-[#0D1F29] w-1/5 text-right">
           {label}
-         
+
           {/* ✅ FIX: Add ALL your optional fields to this list */}
           {![
-              "openings",
-              "specialization",
-              "responsibilities",
-              "preferredSkills",
-            ].includes(name) && <span className="text-red-500"> *</span>}
+            "openings",
+            "specialization",
+            "responsibilities",
+            "preferredSkills",
+          ].includes(name) && <span className="text-red-500"> *</span>}
         </label>
         {isDropdown ? (
           <select
@@ -402,99 +405,125 @@ const Description = ({ setJdData, jdData }) => {
       </div>
     );
   };
- 
+
+  // ------------------------------ Layout with GlobalHeader + Sidebar ------------------------------
+  // We will display GlobalHeader on top (fixed height), then sidebar below it (so sidebar must start below header),
+  // and shift the main content using marginLeft according to collapsed state. HiringManagerSidebar controls collapsed via setCollapsed.
+
+  // track collapsed state locally so Description can apply left margin
+  const [collapsedSidebar, setCollapsedSidebar] = useState(true);
+
   return (
-    <div className="min-h-screen flex flex-col items-center py-10 px-10 bg-[#F5F5F5]">
-      <h1 className="text-4xl font-bold mb-10 text-[#0D1F29]">
-        {isEdit ? "Edit Job Description" : "Manual Job Description"}
-      </h1>
- 
-      <div className="w-full max-w-[95%] bg-white rounded-2xl shadow-lg p-12 border border-gray-200">
-        <div className="flex justify-between mb-10">
-          {sections.map((section, i) => (
-            <button
-              key={section.id}
-              onClick={() => setSectionIndex(i)}
-              className={`flex-1 py-3 mx-1 font-semibold text-white rounded-md transition-all ${
-                sectionIndex === i
-                  ? "bg-gradient-to-r from-[#0F394D] to-[#21B0BE]"
-                  : "bg-[#21B0BE] hover:bg-[#0F394D]"
-              }`}
-            >
-              {section.name}
-            </button>
-          ))}
+    <div className="min-h-screen flex flex-col bg-[#F5F5F5]">
+
+      {/* GLOBAL HEADER */}
+      <GlobalHeader />
+
+      {/* BODY: sidebar (below header) + main content */}
+      <div className="flex flex-1 pt-[24px]">
+
+        {/* SIDEBAR: place below header. HiringManagerSidebar accepts setCollapsed */}
+        <div>
+          <HiringManagerSidebar setCollapsed={setCollapsedSidebar} />
         </div>
- 
-        <h2 className="text-2xl font-semibold mb-6 text-[#0D1F29]">
-          {sections[sectionIndex].name}
-        </h2>
- 
-        <div className="space-y-5">
-          {sectionFields[sectionIndex].map(([label, name, type]) =>
-            renderField(label, name, type)
-          )}
-        </div>
- 
-        {validationError && (
-          <p className="mt-4 text-red-600 font-medium">{validationError}</p>
-        )}
- 
-        <div className="flex justify-end gap-4 mt-10">
-          {sectionIndex > 0 && (
-            <button
-              onClick={() => setSectionIndex(sectionIndex - 1)}
-              className="px-5 py-2 rounded-full border border-gray-300 text-gray-700 hover:bg-gray-100 transition"
-            >
-              Previous
-            </button>
-          )}
- 
-          {sectionIndex < sections.length - 1 ? (
-            <button
-              onClick={handleNext}
-              className="px-5 py-2 rounded-full text-white font-semibold bg-gradient-to-r from-[#0F394D] to-[#21B0BE]"
-            >
-              Next
-            </button>
-          ) : isEdit ? (
-            <button
-              onClick={handleUpdate}
-              className="px-6 py-2 rounded-full text-white font-bold bg-blue-600 hover:bg-blue-700 shadow-lg"
-            >
-              Update Job
-            </button>
-          ) : (
-            <button
-              onClick={handleNext}
-              className="px-5 py-2 rounded-full text-white font-semibold bg-gradient-to-r from-[#0F394D] to-[#21B0BE]"
-            >
-              Preview
-            </button>
-          )}
-        </div>
+
+        {/* MAIN AREA */}
+        <main
+          className="flex-1 p-10 relative bg-[#F8FAFC] overflow-y-auto"
+          // when sidebar is collapsed width smaller => margin smaller. adapt values to match sidebar width (w-20 vs w-72)
+          style={{ marginLeft: collapsedSidebar ? "5rem" : "18rem" }}
+        >
+          <div className="max-w-[95%] mx-auto">
+
+            <div className="flex justify-between mb-10">
+              <h1 className="text-3xl font-bold text-[#0D1F29] mt-8">
+                {isEdit ? "Edit Job Description" : "Manual Job Description"}
+              </h1>
+            </div>
+
+            <div className="w-full bg-white rounded-2xl shadow-lg p-12 border border-gray-200">
+              <div className="flex justify-between mb-10">
+                {sections.map((section, i) => (
+                  <button
+                    key={section.id}
+                    onClick={() => setSectionIndex(i)}
+                    className={`flex-1 py-3 mx-1 font-semibold text-white rounded-md transition-all ${
+                      sectionIndex === i
+                        ? "bg-gradient-to-r from-[#0F394D] to-[#21B0BE]"
+                        : "bg-[#21B0BE] hover:bg-[#0F394D]"
+                    }`}
+                  >
+                    {section.name}
+                  </button>
+                ))}
+              </div>
+
+              <h2 className="text-2xl font-semibold mb-6 text-[#0D1F29]">
+                {sections[sectionIndex].name}
+              </h2>
+
+              <div className="space-y-5">
+                {sectionFields[sectionIndex].map(([label, name, type]) =>
+                  renderField(label, name, type)
+                )}
+              </div>
+
+              {validationError && (
+                <p className="mt-4 text-red-600 font-medium">{validationError}</p>
+              )}
+
+              <div className="flex justify-end gap-4 mt-10">
+                {sectionIndex > 0 && (
+                  <button
+                    onClick={() => setSectionIndex(sectionIndex - 1)}
+                    className="px-5 py-2 rounded-full border border-gray-300 text-gray-700 hover:bg-gray-100 transition"
+                  >
+                    Previous
+                  </button>
+                )}
+
+                {sectionIndex < sections.length - 1 ? (
+                  <button
+                    onClick={handleNext}
+                    className="px-5 py-2 rounded-full text-white font-semibold bg-gradient-to-r from-[#0F394D] to-[#21B0BE]"
+                  >
+                    Next
+                  </button>
+                ) : isEdit ? (
+                  <button
+                    onClick={handleUpdate}
+                    className="px-6 py-2 rounded-full text-white font-bold bg-blue-600 hover:bg-blue-700 shadow-lg"
+                  >
+                    Update Job
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleNext}
+                    className="px-5 py-2 rounded-full text-white font-semibold bg-gradient-to-r from-[#0F394D] to-[#21B0BE]"
+                  >
+                    Preview
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </main>
       </div>
- 
+
       {/* Success popup */}
       {showSuccessModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 border border-gray-100">
             <div className="flex flex-col items-center text-center">
               <div className="bg-[#E0F7FA] p-4 rounded-full mb-4 ring-4 ring-[#E0F7FA]/50">
-                <CheckCircle
-                  className="text-[#21B0BE]"
-                  size={40}
-                  strokeWidth={2.5}
-                />
+                <CheckCircle className="text-[#21B0BE]" size={40} strokeWidth={2.5} />
               </div>
- 
-              <h3 className="text-2xl font-bold text-[#0F394D] mb-2">
-                Success!
-              </h3>
+
+              <h3 className="text-2xl font-bold text-[#0F394D] mb-2">Success!</h3>
               <p className="text-gray-500 mb-8 font-medium">
                 The job description has been updated successfully.
               </p>
- 
+
               <button
                 onClick={() => navigate("/published-jds")}
                 className="w-full py-3 rounded-xl bg-[#0F394D] text-white font-bold hover:bg-[#092532] shadow-lg shadow-gray-200 transition transform hover:scale-[1.02]"
@@ -508,8 +537,5 @@ const Description = ({ setJdData, jdData }) => {
     </div>
   );
 };
- 
+
 export default Description;
- 
- 
- 

@@ -19,6 +19,9 @@ const calculateFileHash = async (file) => {
 const Upload = () => {
   const navigate = useNavigate();
  
+  // ⭐ Added collapsed state to shift card properly
+  const [collapsed, setCollapsed] = useState(true);
+ 
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
@@ -31,7 +34,7 @@ const Upload = () => {
     type: "info",
   });
  
-  // NEW FIELDS (from Option A)
+  // NEW FIELDS
   const [salary, setSalary] = useState("");
   const [salaryCurrency, setSalaryCurrency] = useState("EUR");
   const [candidateType, setCandidateType] = useState("external");
@@ -65,10 +68,8 @@ const Upload = () => {
       for (const file of files) {
         setUploadStatus(`Checking ${file.name}…`);
  
-        // compute hash
         const hash = await calculateFileHash(file);
  
-        // duplicate check
         const checkRes = await fetch(`${API_BASE_URL}/check-hashes/`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -82,18 +83,15 @@ const Upload = () => {
           continue;
         }
  
-        // Upload
         setUploadStatus(`Uploading ${file.name}…`);
  
         const formData = new FormData();
         formData.append("resume_file", file);
         formData.append("file_hash", hash);
  
-        // extra metadata
         if (salary) formData.append("salary", salary);
         if (salaryCurrency) formData.append("salary_currency", salaryCurrency);
-        if (candidateType)
-          formData.append("candidate_type", candidateType);
+        if (candidateType) formData.append("candidate_type", candidateType);
  
         const uploadRes = await fetch(`${API_BASE_URL}/upload-resume/`, {
           method: "POST",
@@ -109,7 +107,6 @@ const Upload = () => {
         }
       }
  
-      // Prepare modal
       let modal = { isOpen: true, type: "success", message: "" };
  
       if (successFiles.length)
@@ -129,12 +126,11 @@ const Upload = () => {
         successFiles.length > 0
           ? "Upload Complete"
           : duplicateFiles.length > 0
-          ? "Files Already Exist"
-          : "Upload Failed";
+            ? "Files Already Exist"
+            : "Upload Failed";
  
       setModalState(modal);
       setFiles([]);
- 
     } catch (err) {
       setModalState({
         isOpen: true,
@@ -158,13 +154,36 @@ const Upload = () => {
       <div className="flex flex-1 pt-[24px]">
  
         {/* SIDEBAR */}
-        <RecruiterSidebar active="Upload" />
+        {/* ⭐ Added setCollapsed so Upload.jsx knows sidebar state */}
+        <RecruiterSidebar active="Upload" setCollapsed={setCollapsed} />
  
         {/* MAIN CONTENT */}
-        <main className="flex-1 p-10 ml-72 relative">
+        <main
+          className="
+            flex-1
+            p-4 md:p-10
+            transition-all
+            flex justify-center
+          "
+          // ⭐ Dynamic margin so card centers correctly
+          style={{ marginLeft: collapsed ? "5rem" : "18rem" }}
+        >
  
           {/* CARD */}
-          <div className="max-w-lg mx-auto bg-white shadow-xl p-10 rounded-2xl border mt-4">
+          <div
+            className="
+              max-w-lg
+              w-full
+              bg-white
+              shadow-xl
+              p-6 md:p-10
+              rounded-2xl
+              border
+              mt-4
+              mx-auto
+            "
+          >
+ 
             <h2 className="text-2xl font-bold text-center mb-6 text-[#0F394D]">
               Upload Resume
             </h2>
@@ -176,23 +195,23 @@ const Upload = () => {
                 className="
                   border-2 border-dashed border-[#21B0BE]/40
                   rounded-xl
-                  h-64
+                  h-52 md:h-64
                   flex flex-col items-center justify-center
                   text-center
                   hover:border-[#21B0BE]
                   transition
                 "
               >
-                <UploadCloud className="text-[#21B0BE] w-14 h-14 mb-4" />
+                <UploadCloud className="text-[#21B0BE] w-12 md:w-14 h-12 md:h-14 mb-4" />
  
-                <p className="text-gray-600 text-lg">Drag & Drop files</p>
+                <p className="text-gray-600 text-md md:text-lg">Drag & Drop files</p>
                 <p className="text-gray-400 text-sm mb-4">or</p>
  
                 <label className="cursor-pointer">
                   <span
                     className="
                       bg-gradient-to-r from-[#073C4D] to-[#1AB8C0]
-                      px-8 py-2
+                      px-6 md:px-8 py-2
                       rounded-full
                       text-white
                       font-medium
@@ -204,18 +223,13 @@ const Upload = () => {
                     Browse
                   </span>
  
-                  <input
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={handleFileChange}
-                  />
+                  <input type="file" multiple className="hidden" onChange={handleFileChange} />
                 </label>
               </div>
  
               {/* SALARY + CURRENCY */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="col-span-2">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-2">
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
                     Expected / Current Salary
                   </label>
@@ -273,10 +287,9 @@ const Upload = () => {
                 disabled={uploading || !files.length}
                 className={`
                   w-full py-3 rounded-lg text-white shadow
-                  ${
-                    uploading || !files.length
-                      ? "bg-gray-400 cursor-not-allowed"
-                      : "bg-gradient-to-r from-[#073C4D] to-[#1AB8C0] hover:opacity-90"
+                  ${uploading || !files.length
+                    ? "bg-gray-400 cursor-not-allowed"
+                    : "bg-gradient-to-r from-[#073C4D] to-[#1AB8C0] hover:opacity-90"
                   }
                 `}
               >
@@ -322,8 +335,11 @@ const CustomAlertModal = ({ isOpen, title, message, type, onClose }) => {
  
         <button
           onClick={onClose}
-          className="w-full mt-6 py-2 bg-gradient-to-r from-[#073C4D] to-[#1AB8C0]
-                     text-white rounded-lg"
+          className="
+            w-full mt-6 py-2
+            bg-gradient-to-r from-[#073C4D] to-[#1AB8C0]
+            text-white rounded-lg
+          "
         >
           OK
         </button>

@@ -1,3 +1,4 @@
+// src/pages/Preview.jsx
 import { API_BASE_URL } from "../config";
 import React, { useRef, useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -13,6 +14,9 @@ import {
   XCircle,
   Info,
 } from "lucide-react";
+
+import GlobalHeader from "../components/sidebar/GlobalHeader";
+import HiringManagerSidebar from "../components/sidebar/HiringManagerSidebar";
 
 // ------ Country-City-Currency data for Preview ------
 const locations = [
@@ -41,6 +45,9 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Track collapsed state so layout can adapt
+  const [collapsed, setCollapsed] = useState(true);
+
   const [jdData, setJdData] = useState(
     jdDataFromProp || location.state?.jdData || null
   );
@@ -67,16 +74,25 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
 
   if (!jdData)
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-[#F5F5F5]">
-        <p className="text-[#0D1F29] text-lg mb-4">
-          No JD data found. Please fill the description first.
-        </p>
-        <button
-          onClick={() => navigate("/description")}
-          className="px-6 py-3 bg-[#21B0BE] text-white rounded-md hover:bg-[#0F394D]"
-        >
-          Go to Description
-        </button>
+      <div className="min-h-screen flex flex-col bg-[#F5F5F5]">
+        <GlobalHeader />
+        <div className="flex flex-1 pt-[72px]"> {/* keep sidebar space consistent */}
+          <HiringManagerSidebar setCollapsed={setCollapsed} />
+          <main
+            className="flex-1 p-8 flex flex-col items-center justify-center"
+            style={{ marginLeft: collapsed ? "5rem" : "18rem" }}
+          >
+            <p className="text-[#0D1F29] text-lg mb-4">
+              No JD data found. Please fill the description first.
+            </p>
+            <button
+              onClick={() => navigate("/description")}
+              className="px-6 py-3 bg-[#21B0BE] text-white rounded-md hover:bg-[#0F394D]"
+            >
+              Go to Description
+            </button>
+          </main>
+        </div>
       </div>
     );
 
@@ -203,88 +219,117 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
 
   return (
     <>
-      <div className="min-h-screen flex flex-col items-center py-10 px-10 bg-[#F5F5F5]">
-        <h1 className="text-4xl font-bold mb-10 text-[#0D1F29]">
-          Job Description Preview
-        </h1>
-        <div className="w-full max-w-[95%] bg-white rounded-2xl shadow-lg border border-gray-200 p-10 flex">
-          {/* Left Side (Screen View - Unchanged) */}
-          <div className="flex-1 bg-[#FAFAFA] rounded-lg shadow-inner p-8 overflow-y-auto h-[75vh]">
-            {sections.map((section, i) => (
-              <div key={i} className="mb-10 border-b pb-6">
-                <div className="flex justify-between items-center mb-3">
-                  <h2 className="text-2xl font-semibold text-[#0D1F29]">
-                    {section.title}
-                  </h2>
-                  <button
-                    onClick={() => handleEditSection(i)}
-                    className="text-[#21B0BE] font-medium hover:text-[#0F394D]"
-                  >
-                    ✏️ Edit
-                  </button>
+      <div className="min-h-screen flex flex-col bg-[#F5F5F5]">
+        {/* Global header at top */}
+        <GlobalHeader />
+
+        {/* layout: sidebar + main content, with top spacing so sidebar doesn't overlap header */}
+        <div className="flex flex-1 pt-[72px]"> {/* 72px to match header height and keep gap */}
+          {/* Sidebar (fixed) - will manage collapsed state via prop */}
+          <HiringManagerSidebar setCollapsed={setCollapsed} />
+
+          {/* Main area - pushed to the right based on collapsed state */}
+          <main
+            className="flex-1 p-8 md:p-10 relative transition-all"
+            style={{ marginLeft: collapsed ? "5rem" : "18rem" }}
+          >
+            {/* subtle background pattern */}
+            <div className="absolute inset-0 bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')] opacity-10 pointer-events-none"></div>
+
+            <div className="relative z-10 max-w-[1200px] mx-auto">
+              <h1 className="text-4xl font-bold mb-6 text-[#0D1F29]">
+                Job Description Preview
+              </h1>
+
+              <div className="w-full bg-white rounded-2xl shadow-lg border border-gray-200 p-8 flex flex-col md:flex-row gap-6">
+                {/* Left Side (content) */}
+                <div className="flex-1 bg-[#FAFAFA] rounded-lg shadow-inner p-6 overflow-y-auto max-h-[70vh]">
+                  {sections.map((section, i) => (
+                    <div key={i} className="mb-8 border-b pb-5">
+                      <div className="flex justify-between items-center mb-3">
+                        <h2 className="text-2xl font-semibold text-[#0D1F29]">
+                          {section.title}
+                        </h2>
+                        <button
+                          onClick={() => handleEditSection(i)}
+                          className="text-[#21B0BE] font-medium hover:text-[#0F394D]"
+                        >
+                          ✏️ Edit
+                        </button>
+                      </div>
+                      {section.fields.map(
+                        (field) =>
+                          jdData[field] && (
+                            <p
+                              key={field}
+                              className="text-[#0D1F29] mb-2 leading-relaxed"
+                              style={{
+                                whiteSpace: "pre-wrap",
+                                display: "flex",
+                                alignItems: "center",
+                              }}
+                            >
+                              <strong className="mr-2">
+                                {field.replace(/([A-Z])/g, " $1").trim()}:
+                              </strong>
+                              {field === "salary" ? (
+                                <>
+                                  {jdData[field]}
+                                  {jdData.location && (
+                                    <span
+                                      style={{
+                                        marginLeft: 10,
+                                        padding: "2px 8px",
+                                        borderRadius: "6px",
+                                        background: "#F2F6F9",
+                                        color: "#0F394D",
+                                        fontWeight: 600,
+                                        fontSize: "1rem",
+                                        border: "1px solid #e4e7ea",
+                                      }}
+                                    >
+                                      {getCurrencyForLocation(jdData.location)}
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                jdData[field]
+                              )}
+                            </p>
+                          )
+                      )}
+                    </div>
+                  ))}
                 </div>
-                {section.fields.map(
-                  (field) =>
-                    jdData[field] && (
-                      <p
-                        key={field}
-                        className="text-[#0D1F29] mb-2 leading-relaxed"
-                        style={{
-                          whiteSpace: "pre-wrap",
-                          display: "flex",
-                          alignItems: "center",
-                        }}
-                      >
-                        <strong>
-                          {field.replace(/([A-Z])/g, " $1").trim()}:
-                        </strong>{" "}
-                        {/* --- Professional Currency Display for Salary --- */}
-                        {field === "salary" ? (
-                          <>
-                            {jdData[field]}
-                            {jdData.location && (
-                              <span
-                                style={{
-                                  marginLeft: 10,
-                                  padding: "2px 8px",
-                                  borderRadius: "6px",
-                                  background: "#F2F6F9",
-                                  color: "#0F394D",
-                                  fontWeight: 600,
-                                  fontSize: "1rem",
-                                  border: "1px solid #e4e7ea",
-                                }}
-                              >
-                                {getCurrencyForLocation(jdData.location)}
-                              </span>
-                            )}
-                          </>
-                        ) : (
-                          jdData[field]
-                        )}
-                      </p>
-                    )
-                )}
+
+                {/* Right Side (Action Buttons) */}
+                <div className="w-full md:w-[260px] flex flex-col justify-start items-center gap-4">
+                  <button
+                    onClick={handleSaveDraft}
+                    className="w-full py-3 rounded-xl font-semibold text-white bg-[#21B0BE] hover:bg-[#0F394D] transition"
+                  >
+                    💾 Save Draft
+                  </button>
+                  <button
+                    onClick={handlePublish}
+                    className="w-full py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-[#0F394D] to-[#21B0BE] hover:opacity-90 transition"
+                  >
+                    🚀 Publish JD
+                  </button>
+
+                  {/* <button
+                    onClick={() => navigate("/description")}
+                    className="w-full py-3 rounded-xl font-semibold text-[#0F394D] border border-gray-200 bg-white hover:bg-gray-50 transition mt-2"
+                  >
+                    ✏️ Edit Full Description
+                  </button> */}
+                </div>
               </div>
-            ))}
-          </div>
-          {/* Right Side (Action Buttons) */}
-          <div className="w-[250px] flex flex-col justify-center items-center ml-10 gap-6">
-            <button
-              onClick={handleSaveDraft}
-              className="w-full py-3 rounded-xl font-semibold text-white bg-[#21B0BE] hover:bg-[#0F394D] transition"
-            >
-              💾 Save Draft
-            </button>
-            <button
-              onClick={handlePublish}
-              className="w-full py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-[#0F394D] to-[#21B0BE] hover:opacity-90 transition"
-            >
-              🚀 Publish JD
-            </button>
-          </div>
+            </div>
+          </main>
         </div>
       </div>
+
       {/* Custom Modal Component */}
       <CustomAlertModal
         isOpen={modalState.isOpen}

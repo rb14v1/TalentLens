@@ -107,6 +107,9 @@ class ConfirmedMatch(models.Model):
     # S3 link to resume PDF
     resume_s3_url = models.URLField(blank=True, null=True)
     resume_file_name = models.CharField(max_length=500, blank=True, null=True)
+
+
+    candidate_type = models.CharField(max_length=50, blank=True, null=True)  # Internal or External
    
     class Meta:
         db_table = 'confirmed_matches'

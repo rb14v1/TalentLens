@@ -522,6 +522,7 @@ def get_all_job_postings(collection_key: str):
 # Initialize Job Collections on Import
 # ======================================================
 try:
+    initialize_qdrant_collection()
     initialize_job_collections()
 except Exception as e:
     print(f"❌ Job collections initialization error: {e}")

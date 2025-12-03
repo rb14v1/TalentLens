@@ -1700,6 +1700,7 @@ def confirm_resume_matches(request):
                     experience_years=resume.get("experience_years", 0),
                     resume_s3_url=resume.get("s3_url", ""),
                     resume_file_name=resume.get("file_name", ""),
+                    candidate_type=resume.get("candidate_type", ""),
                     confirmed_by=recruiter
                 )
                 saved_count += 1
@@ -1787,6 +1788,7 @@ def get_confirmed_matches(request):
                 "status": match.status,
                 "hiring_stage": match.hiring_stage,
                 "hiring_stage": match.hiring_stage or "Applied",
+                "candidate_type": match.candidate_type,
                 "confirmed_at": match.confirmed_at.strftime("%Y-%m-%d %H:%M"),
                 "confirmed_by": match.confirmed_by.name,
             })

@@ -24,7 +24,7 @@ const GlobalHeader = () => {
       {/* LEFT — LOGO */}
       <div
         className="flex items-center gap-3 cursor-pointer"
-        onClick={() => navigate("/recruiterdashboard")}
+        onClick={() => navigate("/home")}
       >
         <img
           src={Version1Logo}
@@ -35,7 +35,7 @@ const GlobalHeader = () => {
  
       {/* RIGHT — HOME BUTTON */}
       <button
-        onClick={() => navigate("/recruiterdashboard")}
+        onClick={() => navigate("/")}
         className="
           flex items-center gap-2
           bg-gradient-to-r from-[#073C4D] to-[#0BB4C3]
@@ -47,7 +47,7 @@ const GlobalHeader = () => {
         "
       >
         <Home size={18} />
-        Home
+    
       </button>
     </header>
   );

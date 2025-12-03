@@ -1,9 +1,17 @@
+// src/pages/Managerpage.jsx
+ 
 import React, { useState, useEffect } from "react";
 import { BarChart3, FileText, Users } from "lucide-react";
+ 
 import HiringManagerSidebar from "../components/sidebar/HiringManagerSidebar";
+import GlobalHeader from "../components/sidebar/GlobalHeader";
+import { useNavigate } from "react-router-dom";
  
 function Managerpage() {
   const [published, setPublished] = useState([]);
+  const [collapsed, setCollapsed] = useState(true);
+ 
+  const navigate = useNavigate(); // ⭐ Added
  
   useEffect(() => {
     const items = JSON.parse(localStorage.getItem("publishedJDs") || "[]");
@@ -11,72 +19,211 @@ function Managerpage() {
   }, []);
  
   return (
-    <div className="min-h-screen flex bg-[#E9F1F4]">
+    <div className="min-h-screen flex flex-col bg-[#E9F1F4]">
  
-      {/* ⬅️ Hiring Manager Sidebar */}
-      <HiringManagerSidebar jds={published} />
+      {/* ⭐ GLOBAL HEADER */}
+      <GlobalHeader />
  
-      {/* MAIN CONTENT */}
-      <main
-        className="flex-1 ml-72 p-10 relative
-                   bg-gradient-to-br from-[#F8FAFC] via-[#E9F1F4] to-[#E4EEF4]"
-      >
+      {/* ⭐ CONTENT BELOW HEADER */}
+      <div className="flex flex-1 pt-[24px]">
  
-        {/* Background pattern */}
-        <div
-          className="absolute inset-0
-          bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')]
-          opacity-10 pointer-events-none"
-        ></div>
+        {/* ⭐ SIDEBAR */}
+        <HiringManagerSidebar
+          setCollapsed={setCollapsed}
+          jds={published}
+          style={{ marginTop: "72px" }}
+        />
  
-        <div className="max-w-6xl mx-auto relative z-10">
+        {/* ⭐ MAIN CONTENT */}
+        <main
+          className="
+            flex-1
+            p-6 sm:p-8 md:p-10
+            overflow-y-auto
+            transition-all
+            relative
+          "
+          style={{ marginLeft: collapsed ? "5rem" : "18rem" }}
+        >
  
-          {/* HEADER */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-[#0D1F29]">Manager Overview</h1>
-            <p className="text-gray-600 mt-2">
-              Monitor hiring activities, job postings, and candidate engagement at a glance.
-            </p>
+          {/* Background Pattern */}
+          <div className="absolute inset-0 bg-[url('https://www.toptal.com/designers/subtlepatterns/uploads/dot-grid.png')] opacity-[0.07] pointer-events-none"></div>
+ 
+          {/* PAGE CONTENT */}
+          <div className="relative z-10 max-w-7xl mx-auto">
+ 
+            {/* PAGE HEADER */}
+            <div className="mb-10 mt-4">
+              <h1 className="text-3xl md:text-4xl font-extrabold text-[#0C1C26]">
+                Manager Overview
+              </h1>
+              <p className="text-gray-600 mt-2 text-[14px] md:text-[15px]">
+                Monitor hiring activities, job postings, and candidate engagement at a glance.
+              </p>
+            </div>
+ 
+            {/* DASHBOARD CARDS */}
+            <div
+              className="
+                grid
+                grid-cols-1
+                sm:grid-cols-2
+                md:grid-cols-2
+                lg:grid-cols-3
+                gap-6
+                md:gap-8
+                lg:gap-10
+              "
+            >
+ 
+              {/* ⭐ Manual JD Create → Navigate */}
+              <div
+                onClick={() => navigate("/description")}
+                className="
+                  cursor-pointer
+                  p-6 md:p-7
+                  rounded-2xl
+                  bg-white
+                  border border-gray-200
+                  hover:shadow-xl hover:-translate-y-2
+                  transition-all duration-300 group
+                "
+              >
+                <div
+                  className="
+                    w-14 h-14 md:w-16 md:h-16
+                    rounded-xl bg-[#F1F5F9]
+                    flex items-center justify-center
+                    text-[#073C4D] shadow-sm
+                    group-hover:bg-[#E5EDF4]
+                    transition-all
+                  "
+                >
+                  <BarChart3 size={30} />
+                </div>
+ 
+                <h3 className="text-lg md:text-xl font-semibold text-[#0D1F29] mt-5">
+                  Manual JD Create
+                </h3>
+ 
+                <p className="text-gray-600 text-sm mt-2">
+                  Review statistics and activity on active job descriptions.
+                </p>
+              </div>
+ 
+              {/* ⭐ Draft → Navigate */}
+              <div
+                onClick={() => navigate("/drafts")}
+                className="
+                  cursor-pointer
+                  p-6 md:p-7
+                  rounded-2xl
+                  bg-white
+                  border border-gray-200
+                  hover:shadow-xl hover:-translate-y-2
+                  transition-all duration-300 group
+                "
+              >
+                <div
+                  className="
+                    w-14 h-14 md:w-16 md:h-16
+                    rounded-xl bg-[#F1F5F9]
+                    flex items-center justify-center
+                    text-[#073C4D] shadow-sm
+                    group-hover:bg-[#E5EDF4]
+                    transition-all
+                  "
+                >
+                  <FileText size={30} />
+                </div>
+ 
+                <h3 className="text-lg md:text-xl font-semibold text-[#0D1F29] mt-5">
+                  Draft
+                </h3>
+ 
+                <p className="text-gray-600 text-sm mt-2">
+                  Track open positions and their current recruitment stages.
+                </p>
+              </div>
+ 
+              {/* ⭐ Published JDs → Navigate */}
+              <div
+                onClick={() => navigate("/published-jds")}
+                className="
+                  cursor-pointer
+                  p-6 md:p-7
+                  rounded-2xl
+                  bg-white
+                  border border-gray-200
+                  hover:shadow-xl hover:-translate-y-2
+                  transition-all duration-300 group
+                "
+              >
+                <div
+                  className="
+                    w-14 h-14 md:w-16 md:h-16
+                    rounded-xl bg-[#F1F5F9]
+                    flex items-center justify-center
+                    text-[#073C4D] shadow-sm
+                    group-hover:bg-[#E5EDF4]
+                    transition-all
+                  "
+                >
+                  <Users size={30} />
+                </div>
+ 
+                <h3 className="text-lg md:text-xl font-semibold text-[#0D1F29] mt-5">
+                  Published JDs
+                </h3>
+ 
+                <p className="text-gray-600 text-sm mt-2">
+                  View shortlisted candidates and resume engagement analytics.
+                </p>
+              </div>
+ 
+              {/* ⭐ Matched Resume → Navigate */}
+              <div
+                onClick={() => navigate("/matchedresume")}
+                className="
+                  cursor-pointer
+                  p-6 md:p-7
+                  rounded-2xl
+                  bg-white
+                  border border-gray-200
+                  hover:shadow-xl hover:-translate-y-2
+                  transition-all duration-300 group
+                "
+              >
+                <div
+                  className="
+                    w-14 h-14 md:w-16 md:h-16
+                    rounded-xl bg-[#F1F5F9]
+                    flex items-center justify-center
+                    text-[#073C4D] shadow-sm
+                    group-hover:bg-[#E5EDF4]
+                    transition-all
+                  "
+                >
+                  <Users size={30} />
+                </div>
+ 
+                <h3 className="text-lg md:text-xl font-semibold text-[#0D1F29] mt-5">
+                  Matched Resume
+                </h3>
+ 
+                <p className="text-gray-600 text-sm mt-2">
+                  View shortlisted candidates and resume engagement analytics.
+                </p>
+              </div>
+ 
+            </div>
           </div>
- 
-          {/* CARDS */}
-          <div className="grid grid-cols-3 gap-8 mt-8">
- 
-            {/* JD Overview */}
-            <div className="bg-white shadow-md rounded-2xl p-6 border hover:shadow-lg transition">
-              <BarChart3 size={34} className="text-[#0F394D] mb-3" />
-              <h3 className="text-xl font-semibold">JD Overview</h3>
-              <p className="text-gray-500 mt-1 text-sm">
-                Review statistics and activity on active job descriptions.
-              </p>
-            </div>
- 
-            {/* Active Positions */}
-            <div className="bg-white shadow-md rounded-2xl p-6 border hover:shadow-lg transition">
-              <FileText size={34} className="text-[#0F394D] mb-3" />
-              <h3 className="text-xl font-semibold">Active Positions</h3>
-              <p className="text-gray-500 mt-1 text-sm">
-                Track open positions and their current recruitment stages.
-              </p>
-            </div>
- 
-            {/* Candidate Insights */}
-            <div className="bg-white shadow-md rounded-2xl p-6 border hover:shadow-lg transition">
-              <Users size={34} className="text-[#0F394D] mb-3" />
-              <h3 className="text-xl font-semibold">Candidate Insights</h3>
-              <p className="text-gray-500 mt-1 text-sm">
-                View shortlisted candidates and resume engagement analytics.
-              </p>
-            </div>
- 
-          </div>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
  
 export default Managerpage;
- 
  
  

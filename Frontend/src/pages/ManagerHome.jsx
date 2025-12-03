@@ -21,45 +21,90 @@ const ManagerHome = () => {
   const [user, setUser] = useState({
     name: "",
     role: "",
-    department: "",
+    email: "",
+    profile_image: "",
     loading: true,
   });
 
-  // ===================== FETCH USER =====================
+  // Try to hydrate from localStorage first for instant UI
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("user"));
+      if (stored && (stored.name || stored.email || stored.profile_image)) {
+        setUser((prev) => ({
+          ...prev,
+          name: stored.name || prev.name,
+          role: stored.role || prev.role,
+          email: stored.email || prev.email,
+          profile_image: stored.profile_image || prev.profile_image,
+          loading: false,
+        }));
+      }
+    } catch (err) {
+      // ignore parse errors
+      console.warn("Could not read user from localStorage", err);
+    }
+  }, []);
+
+  // ===================== FETCH USER (refresh / canonical) =====================
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/manager/profile/`);
+        const response = await fetch(`${API_BASE_URL}/manager/profile/`, {
+          // include credentials if your API requires session cookies
+          credentials: "include",
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
         const data = await response.json();
+
+        // Persist to localStorage for fast next-load
+        try {
+          const stored = JSON.parse(localStorage.getItem("user")) || {};
+          stored.name = data.name || stored.name;
+          stored.role = data.role || stored.role;
+          stored.email = data.email || stored.email;
+          if (data.profile_image) stored.profile_image = data.profile_image;
+          localStorage.setItem("user", JSON.stringify(stored));
+        } catch (err) {
+          // ignore storage errors
+        }
 
         setUser({
           name: data.name || "",
           role: data.role || "No Role",
-          department: data.department || "No Department",
+          email: data.email || "",
+          profile_image: data.profile_image || "",
           loading: false,
         });
       } catch (err) {
         console.error("Failed to fetch user:", err);
-
-        setUser({
-          name: "",
-          role: "",
-          department: "",
-          loading: false,
-        });
+        // if we already had localStorage data, keep it; otherwise just set loading false
+        setUser((prev) => ({ ...prev, loading: false }));
       }
     };
 
     fetchUser();
   }, []);
 
+  // Helper: pick avatar source
+  const avatarSrc = () => {
+    if (user.profile_image) return user.profile_image; // assume absolute URL or base64
+    if (user.name) {
+      // ui-avatars (URL-encoded name)
+      return `https://ui-avatars.com/api/?name=${encodeURIComponent(
+        user.name
+      )}&background=073C4D&color=fff`;
+    }
+    return "/assets/default-avatar.png";
+  };
+
   return (
     <div className="min-h-screen bg-[#E9F1F4]">
       {/* -------------------- PAGE TITLE -------------------- */}
       <div className="w-full pt-4 pb-3 flex justify-center">
-        <h1 className="text-4xl font-bold text-[#0D1F29]">
-          Manager Dashboard
-        </h1>
+        <h1 className="text-4xl font-bold text-[#0D1F29]">Manager Dashboard</h1>
       </div>
 
       {/* -------------------- CONTENT WRAPPER -------------------- */}
@@ -147,18 +192,14 @@ const ManagerHome = () => {
       </div>
 
       {/* -------------------- BOTTOM-LEFT PROFILE CARD -------------------- */}
-      <div className="fixed bottom-6 left-6 bg-white shadow-xl rounded-2xl px-5 py-4 flex items-center justify-between gap-4 border border-gray-200 w-[300px] z-50">
+      <div className="fixed bottom-6 left-6 bg-white shadow-xl rounded-2xl px-5 py-4 flex items-center justify-between gap-4 border border-gray-200 w-[340px] z-50">
         {/* Avatar + Edit */}
         <div className="flex items-center gap-4">
           <div className="relative">
             <img
-              src={
-                user.loading
-                  ? "/assets/default-avatar.png"
-                  : `https://ui-avatars.com/api/?name=${user.name}&background=073C4D&color=fff`
-              }
+              src={avatarSrc()}
               alt="profile"
-              className="w-14 h-14 rounded-full border-2 border-white shadow-md"
+              className="w-14 h-14 rounded-full border-2 border-white shadow-md object-cover"
             />
 
             {/* Edit icon */}
@@ -167,17 +208,17 @@ const ManagerHome = () => {
             </button>
           </div>
 
-          {/* User Details */}
-          <div className="flex flex-col leading-snug">
-            <span className="text-sm text-gray-500">
+          {/* User Details: role + name + email */}
+          <div className="flex flex-col leading-snug overflow-hidden">
+            <span className="text-sm text-gray-500 truncate">
               {user.loading ? "Loading…" : user.role || "No Role Assigned"}
             </span>
-            <span className="text-base font-semibold text-gray-900">
+            <span className="text-base font-semibold text-gray-900 truncate">
               {user.loading ? "Loading…" : user.name || "Unknown User"}
             </span>
 
-            <span className="text-xs text-gray-500 mt-1">
-              {user.loading ? "Fetching…" : user.department || "No Department"}
+            <span className="text-xs text-gray-500 mt-1 truncate">
+              {user.loading ? "Fetching…" : user.email || "No Email"}
             </span>
           </div>
         </div>
@@ -186,6 +227,7 @@ const ManagerHome = () => {
         <button
           onClick={() => navigate("/logout")}
           className="p-2 rounded-full hover:bg-gray-100 transition"
+          title="Logout"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
