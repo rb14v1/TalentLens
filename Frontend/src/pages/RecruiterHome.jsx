@@ -70,7 +70,7 @@ const RecruiterHome = () => {
 
       icon: <FolderOpen />,
 
-      desc: "Browse, edit and organize all uploaded resumes.",
+      desc: "Browse all uploaded resumes.",
 
       link: "/manageresume",
 

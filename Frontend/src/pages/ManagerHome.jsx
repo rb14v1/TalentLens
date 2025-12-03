@@ -225,7 +225,7 @@ const ManagerHome = () => {
 
         {/* Logout */}
         <button
-          onClick={() => navigate("/logout")}
+          onClick={() => navigate("/")}
           className="p-2 rounded-full hover:bg-gray-100 transition"
           title="Logout"
         >

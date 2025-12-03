@@ -55,10 +55,10 @@ function Managerpage() {
             {/* PAGE HEADER */}
             <div className="mb-10 mt-4">
               <h1 className="text-3xl md:text-4xl font-extrabold text-[#0C1C26]">
-                Manager Overview
+                Hiring Manager Overview
               </h1>
               <p className="text-gray-600 mt-2 text-[14px] md:text-[15px]">
-                Monitor hiring activities, job postings, and candidate engagement at a glance.
+                Monitor hiring activities, jd postings, and resume management at a glance.
               </p>
             </div>
  
@@ -107,7 +107,7 @@ function Managerpage() {
                 </h3>
  
                 <p className="text-gray-600 text-sm mt-2">
-                  Review statistics and activity on active job descriptions.
+                  Create JD's in a form based interface.
                 </p>
               </div>
  
@@ -142,7 +142,7 @@ function Managerpage() {
                 </h3>
  
                 <p className="text-gray-600 text-sm mt-2">
-                  Track open positions and their current recruitment stages.
+                  Check previously saved jd-drafts.
                 </p>
               </div>
  
@@ -177,7 +177,7 @@ function Managerpage() {
                 </h3>
  
                 <p className="text-gray-600 text-sm mt-2">
-                  View shortlisted candidates and resume engagement analytics.
+                  View finalised and published JD's.
                 </p>
               </div>
  
@@ -212,7 +212,7 @@ function Managerpage() {
                 </h3>
  
                 <p className="text-gray-600 text-sm mt-2">
-                  View shortlisted candidates and resume engagement analytics.
+                  View matched resumes with percentage and insights.
                 </p>
               </div>
  

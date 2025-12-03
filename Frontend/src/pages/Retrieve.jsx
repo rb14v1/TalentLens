@@ -16,6 +16,7 @@ function Retrieve() {
   const [department, setDepartment] = useState("");
   const [cpdLevel, setCpdLevel] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [searchTokens, setSearchTokens] = useState([]); // 🔹 tokens/chips
   const [resumes, setResumes] = useState([]);
   const [selectedResume, setSelectedResume] = useState(null);
   const [matchedKeywords, setMatchedKeywords] = useState([]);
@@ -29,6 +30,28 @@ function Retrieve() {
   const getPdfProxyUrl = (fileUrl) =>
     `${API_BASE_URL}/proxy_resume/?file_url=${encodeURIComponent(fileUrl)}`;
  
+  // 🔹 helper to combine tokens + current input as final search text
+  const getCombinedSearchText = () => {
+    const parts = [...searchTokens];
+    const trimmed = searchTerm.trim();
+    if (trimmed) parts.push(trimmed);
+    return parts.join(" ");
+  };
+ 
+  // 🔹 add current input as a chip
+  const addTokenFromInput = () => {
+    const trimmed = searchTerm.trim();
+    if (trimmed && !searchTokens.includes(trimmed)) {
+      setSearchTokens((prev) => [...prev, trimmed]);
+    }
+    setSearchTerm("");
+  };
+ 
+  // 🔹 remove a specific chip
+  const removeToken = (token) => {
+    setSearchTokens((prev) => prev.filter((t) => t !== token));
+  };
+ 
   // ⭐ Fetch matched keywords
   const fetchMatchedKeywords = async (resume) => {
     try {
@@ -37,7 +60,7 @@ function Retrieve() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           resume_skills: resume.skills || [],
-          search_text: searchTerm || "",
+          search_text: getCombinedSearchText() || "",
         }),
       });
  
@@ -57,8 +80,10 @@ function Retrieve() {
     setResumes([]);
  
     try {
+      const combinedQuery = getCombinedSearchText();
+ 
       const payload = {
-        query: searchTerm || "",
+        query: combinedQuery || "",
         filters: {
           department: department || "",
           cpd_level: cpdLevel || "",
@@ -123,6 +148,7 @@ function Retrieve() {
     setDepartment("");
     setCpdLevel("");
     setSearchTerm("");
+    setSearchTokens([]); // 🔹 clear chips as well
     setResumes([]);
     setError(null);
     setSelectedResume(null);
@@ -243,21 +269,72 @@ function Retrieve() {
  
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <div>
-                <label className="block text-gray-700 mb-1 font-medium">Search</label>
-                <div className="flex items-center border border-gray-300 rounded-lg p-2 bg-white/70 backdrop-blur">
+                <label className="block text-gray-700 mb-1 font-medium">
+                  Search
+                </label>
+                <div className="flex items-center flex-wrap gap-2 border border-gray-300 rounded-lg p-2 bg-white/70 backdrop-blur">
                   <Search className="text-gray-400 mr-2" size={18} />
+ 
+                  {/* 🔹 Chips */}
+                  {searchTokens.map((token, idx) => (
+                    <span
+                      key={`${token}-${idx}`}
+                      className="flex items-center bg-[#0E96A8] text-white
+text-[#0F394D] px-2 py-1 rounded-full text-xs md:text-sm gap-1"
+                    >
+                      <span>{token}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeToken(token);
+                        }}
+                        className="hover:text-[#0F394D]"
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))}
+ 
+                  {/* 🔹 Input for current token */}
                   <input
                     type="text"
-                    placeholder="Search Resume..."
+                    placeholder={
+                      searchTokens.length === 0 ? "Search Resume..." : ""
+                    }
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full bg-transparent outline-none"
+                    onKeyDown={(e) => {
+                      if (
+                        (e.key === " " || e.key === "," || e.key === "Enter") &&
+                        searchTerm.trim() !== ""
+                      ) {
+                        e.preventDefault();
+                        addTokenFromInput();
+                      } else if (
+                        e.key === "Backspace" &&
+                        searchTerm === "" &&
+                        searchTokens.length > 0
+                      ) {
+                        // Backspace with empty input removes last chip
+                        setSearchTokens((prev) => prev.slice(0, -1));
+                      }
+                    }}
+                    onBlur={() => {
+                      // optional: when leaving input, commit last token
+                      if (searchTerm.trim() !== "") {
+                        addTokenFromInput();
+                      }
+                    }}
+                    className="flex-1 min-w-[80px] bg-transparent outline-none text-sm md:text-base"
                   />
                 </div>
               </div>
  
               <div>
-                <label className="block text-gray-700 mb-1 font-medium">CPD Level</label>
+                <label className="block text-gray-700 mb-1 font-medium">
+                  CPD Level
+                </label>
                 <select
                   value={cpdLevel}
                   onChange={(e) => setCpdLevel(e.target.value)}
@@ -326,7 +403,9 @@ function Retrieve() {
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500 text-center mt-10">No resumes to display.</p>
+              <p className="text-gray-500 text-center mt-10">
+                No resumes to display.
+              </p>
             )}
           </div>
         </main>
@@ -350,7 +429,9 @@ function Retrieve() {
                 <h2 className="text-xl font-semibold text-gray-800">
                   {selectedResume.candidate_name}
                 </h2>
-                <p className="text-gray-500 text-sm">{selectedResume.role}</p>
+                <p className="text-gray-500 text-sm">
+                  {selectedResume.role}
+                </p>
               </div>
             </div>
  
@@ -412,7 +493,9 @@ function Retrieve() {
             </div>
  
             <div className="mb-6">
-              <p className="font-medium text-gray-700 mb-2">Matched Keywords:</p>
+              <p className="font-medium text-gray-700 mb-2">
+                Matched Keywords:
+              </p>
               <div className="flex flex-wrap gap-2">
                 {matchedKeywords.length > 0 ? (
                   matchedKeywords.map((kw, i) => (
