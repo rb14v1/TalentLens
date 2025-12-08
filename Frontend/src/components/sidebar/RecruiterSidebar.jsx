@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   LogOut,
   Pencil,
+  Briefcase,
 } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { API_BASE_URL } from "../../config";
@@ -156,6 +157,7 @@ const RecruiterSidebar = ({ setCollapsed }) => {
           <SidebarItem label="Dashboard" icon={<LayoutDashboard />} link="/recruiterdashboard" />
           <SidebarItem label="Manage Resume" icon={<FileText />} link="/manageresume" />
           <SidebarItem label="JD Matcher" icon={<SearchCheck />} link="/jobdescriptionmatch" />
+          <SidebarItem label="All JDs" icon={<Briefcase />} link="/recruiter-jds" />
         </div>
  
         {/* Profile Section */}

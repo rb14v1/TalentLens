@@ -131,7 +131,7 @@ const RecruiterHome = () => {
 <div className="mb-10 md:mb-12 mt-6">
 <h1 className="text-3xl md:text-4xl font-extrabold text-[#0C1C26] flex items-center gap-2">
 
-                Welcome, Recruiter <span className="text-4xl">👋</span>
+                Welcome, Recruiter <span className="text-4xl"></span>
 </h1>
 <p className="text-gray-600 mt-2 text-[14px] md:text-[15px]">
 

@@ -19,6 +19,7 @@ import Drafts from "./pages/Drafts";
 import MatchedResume from "./pages/MatchedResume";
 import ViewJD from "./pages/ViewJD";
 import ManagerHome from "./pages/ManagerHome";
+import RecruiterViewJDs from "./pages/RecruiterViewJDs";
  
 function App() {
   const [jdData, setJdData] = useState(null);
@@ -44,6 +45,7 @@ function App() {
       <Route path="/drafts" element={<Drafts />} />
       <Route path="/matchedresume" element={<MatchedResume />} />
       <Route path="/managerhome" element={<ManagerHome />} />
+      <Route path="/recruiter-jds" element={<RecruiterViewJDs />} />
  
       {/* ✅ Correct FIXED ROUTES */}
       <Route path="/view-job/:id" element={<ViewJD />} />

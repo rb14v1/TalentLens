@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import GlobalHeader from "../components/sidebar/GlobalHeader";
+
 
 import {
   Briefcase,
@@ -101,7 +103,13 @@ const ManagerHome = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#E9F1F4]">
+  <div className="min-h-screen bg-[#E9F1F4]">
+    {/* GLOBAL HEADER */}
+    <GlobalHeader />
+
+    {/* Main Page Content - Added padding top for header */}
+    <div className="pt-[90px]">
+      
       {/* -------------------- PAGE TITLE -------------------- */}
       <div className="w-full pt-4 pb-3 flex justify-center">
         <h1 className="text-4xl font-bold text-[#0D1F29]">Manager Dashboard</h1>
@@ -190,63 +198,64 @@ const ManagerHome = () => {
           </div>
         </div>
       </div>
+    </div>
 
-      {/* -------------------- BOTTOM-LEFT PROFILE CARD -------------------- */}
-      <div className="fixed bottom-6 left-6 bg-white shadow-xl rounded-2xl px-5 py-4 flex items-center justify-between gap-4 border border-gray-200 w-[340px] z-50">
-        {/* Avatar + Edit */}
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            <img
-              src={avatarSrc()}
-              alt="profile"
-              className="w-14 h-14 rounded-full border-2 border-white shadow-md object-cover"
-            />
+    {/* -------------------- BOTTOM-LEFT PROFILE CARD -------------------- */}
+    <div className="fixed bottom-6 left-6 bg-white shadow-xl rounded-2xl px-5 py-4 flex items-center justify-between gap-4 border border-gray-200 w-[340px] z-50">
+      {/* Avatar + Edit */}
+      <div className="flex items-center gap-4">
+        <div className="relative">
+          <img
+            src={avatarSrc()}
+            alt="profile"
+            className="w-14 h-14 rounded-full border-2 border-white shadow-md object-cover"
+          />
 
-            {/* Edit icon */}
-            <button className="absolute bottom-0 right-0 bg-white rounded-full p-1 shadow hover:bg-gray-100">
-              <Pencil size={16} className="text-[#073C4D]" />
-            </button>
-          </div>
-
-          {/* User Details: role + name + email */}
-          <div className="flex flex-col leading-snug overflow-hidden">
-            <span className="text-sm text-gray-500 truncate">
-              {user.loading ? "Loading…" : user.role || "No Role Assigned"}
-            </span>
-            <span className="text-base font-semibold text-gray-900 truncate">
-              {user.loading ? "Loading…" : user.name || "Unknown User"}
-            </span>
-
-            <span className="text-xs text-gray-500 mt-1 truncate">
-              {user.loading ? "Fetching…" : user.email || "No Email"}
-            </span>
-          </div>
+          {/* Edit icon */}
+          <button className="absolute bottom-0 right-0 bg-white rounded-full p-1 shadow hover:bg-gray-100">
+            <Pencil size={16} className="text-[#073C4D]" />
+          </button>
         </div>
 
-        {/* Logout */}
-        <button
-          onClick={() => navigate("/")}
-          className="p-2 rounded-full hover:bg-gray-100 transition"
-          title="Logout"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-5 w-5 text-gray-600"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-            />
-          </svg>
-        </button>
+        {/* User Details: role + name + email */}
+        <div className="flex flex-col leading-snug overflow-hidden">
+          <span className="text-sm text-gray-500 truncate">
+            {user.loading ? "Loading…" : user.role || "No Role Assigned"}
+          </span>
+          <span className="text-base font-semibold text-gray-900 truncate">
+            {user.loading ? "Loading…" : user.name || "Unknown User"}
+          </span>
+
+          <span className="text-xs text-gray-500 mt-1 truncate">
+            {user.loading ? "Fetching…" : user.email || "No Email"}
+          </span>
+        </div>
       </div>
+
+      {/* Logout */}
+      <button
+        onClick={() => navigate("/")}
+        className="p-2 rounded-full hover:bg-gray-100 transition"
+        title="Logout"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className="h-5 w-5 text-gray-600"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+          />
+        </svg>
+      </button>
     </div>
-  );
+  </div>
+);
 };
 
 export default ManagerHome;

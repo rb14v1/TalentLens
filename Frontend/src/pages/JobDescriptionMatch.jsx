@@ -1,13 +1,14 @@
 // Frontend/src/pages/JobDescriptionMatch.jsx
-import React, { useState } from "react";
-import { Upload, Search, ArrowLeft, X, Eye, Sparkles } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import React, { useState , useEffect } from "react";
+import { Upload, Search, ArrowLeft, X, Eye, Sparkles,Loader, CheckCircle } from "lucide-react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { API_BASE_URL } from "../config";
 import RecruiterSidebar from "../components/sidebar/RecruiterSidebar";
 import GlobalHeader from "../components/sidebar/GlobalHeader";
 
 const JobDescriptionMatch = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   // MATCHED: collapsed default and setter like Upload.jsx
   const [collapsed, setCollapsed] = useState(true);
 
@@ -24,6 +25,7 @@ const JobDescriptionMatch = () => {
   const [submissionMode, setSubmissionMode] = useState(false);
   const [selectedResumes, setSelectedResumes] = useState([]);
   const [confirmPopup, setConfirmPopup] = useState(false);
+  
 
   // JD info for saving
   const [currentJD, setCurrentJD] = useState(null);
@@ -38,7 +40,85 @@ const JobDescriptionMatch = () => {
   const [requiredExperienceMin, setRequiredExperienceMin] = useState(null);
   const [requiredExperienceMax, setRequiredExperienceMax] = useState(null);
 
-  const handleFileChange = (e) => setJdFile(e.target.files[0]);
+  useEffect(() => {
+    if (location.state?.jobId) {
+      console.log("Auto-loading Job:", location.state.jobId);
+      autoLoadJD(location.state.jobId, location.state.fileName);
+    }
+  }, [location.state]);
+
+  // ✅ 3. Function to fetch PDF from Backend
+  const autoLoadJD = async (id, name) => {
+    setLoadingPdf(true);
+    try {
+        // Fetch the PDF Blob from your download endpoint
+        const res = await fetch(`${API_BASE_URL}/jobs/download/${id}/`, { credentials: "include" });
+        if(!res.ok) throw new Error("Failed to fetch JD file");
+        
+        const blob = await res.blob();
+        const file = new File([blob], name, { type: "application/pdf" });
+
+        // Set file state so the UI updates
+        setJdFile(file);
+
+        // Automatically trigger extraction
+        const formData = new FormData();
+        formData.append("jd_file", file);
+
+        const extractRes = await fetch(`${API_BASE_URL}/extract_jd/`, {
+            method: "POST",
+            body: formData,
+        });
+
+        if (!extractRes.ok) throw new Error("Extraction failed");
+        
+        const data = await extractRes.json();
+        setJdText(data.jd_text);
+        setJdKeywords(data.keywords || []);
+
+    } catch (e) {
+        setError("Could not auto-load the Job Description.");
+        console.error(e);
+    } finally {
+        setLoadingPdf(false);
+    }
+  };
+
+  // ✅ MISSING FUNCTION: Handles sending the PDF to backend for text extraction
+  const handleExtractJD = async (file) => {
+    const formData = new FormData();
+    formData.append("jd_file", file);
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/extract_jd/`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setJdText(data.jd_text);
+        setJdKeywords(data.keywords);
+      } else {
+        setError(data.error || "Failed to extract JD.");
+      }
+    } catch (err) {
+      setError("Server error during extraction.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      setJdFile(file);
+      handleExtractJD(file); // ✅ This line works now
+    }
+  };
 
   const handleViewResume = (resume) => {
     const fileName =
