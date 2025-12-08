@@ -1,6 +1,6 @@
 // src/pages/Upload.jsx
-import React, { useState } from "react";
-import { UploadCloud, Loader, CheckCircle, XCircle, Info } from "lucide-react";
+import React, { useState, useRef } from "react";
+import { UploadCloud, CheckCircle, XCircle, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
  
 import RecruiterSidebar from "../components/sidebar/RecruiterSidebar";
@@ -19,14 +19,11 @@ const calculateFileHash = async (file) => {
 const Upload = () => {
   const navigate = useNavigate();
  
-  // ⭐ Added collapsed state to shift card properly
   const [collapsed, setCollapsed] = useState(true);
- 
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
  
-  // Modal
   const [modalState, setModalState] = useState({
     isOpen: false,
     title: "",
@@ -34,10 +31,44 @@ const Upload = () => {
     type: "info",
   });
  
-  // NEW FIELDS
   const [salary, setSalary] = useState("");
   const [salaryCurrency, setSalaryCurrency] = useState("EUR");
   const [candidateType, setCandidateType] = useState("external");
+ 
+  // ---------------- DRAG & DROP (Final Production-Grade) ----------------
+  const dropRef = useRef(null);
+  const [isDragging, setIsDragging] = useState(false);
+ 
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+ 
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+ 
+    // Close highlight ONLY if leaving the container entirely
+    if (dropRef.current && !dropRef.current.contains(e.relatedTarget)) {
+      setIsDragging(false);
+    }
+  };
+ 
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy"; // REQUIRED for Chrome/Safari
+  };
+ 
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+ 
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    setFiles(droppedFiles);
+  };
  
   const handleFileChange = (e) => {
     setFiles(Array.from(e.target.files));
@@ -90,7 +121,8 @@ const Upload = () => {
         formData.append("file_hash", hash);
  
         if (salary) formData.append("salary", salary);
-        if (salaryCurrency) formData.append("salary_currency", salaryCurrency);
+        if (salaryCurrency)
+          formData.append("salary_currency", salaryCurrency);
         if (candidateType) formData.append("candidate_type", candidateType);
  
         const uploadRes = await fetch(`${API_BASE_URL}/upload-resume/`, {
@@ -123,11 +155,9 @@ const Upload = () => {
       }
  
       modal.title =
-        successFiles.length > 0
-          ? "Upload Complete"
-          : duplicateFiles.length > 0
-            ? "Files Already Exist"
-            : "Upload Failed";
+        successFiles.length > 0 ? "Upload Complete" :
+        duplicateFiles.length > 0 ? "Files Already Exist" :
+        "Upload Failed";
  
       setModalState(modal);
       setFiles([]);
@@ -150,80 +180,85 @@ const Upload = () => {
       {/* GLOBAL HEADER */}
       <GlobalHeader />
  
-      {/* LAYOUT BELOW HEADER */}
-      <div className="flex flex-1 pt-[24px]">
+      {/* PAGE HEADER */}
+      <div className="text-center mt-2 mb-4"> <br></br> <br></br> <br></br>
+        <h1 className="text-3xl font-bold text-[#073C4D]">Upload Resume</h1>
+        <p className="text-gray-600 text-md italic ">
+          Submit and manage your resumes securely for screening and processing
+        </p>
+      </div>
  
-        {/* SIDEBAR */}
-        {/* ⭐ Added setCollapsed so Upload.jsx knows sidebar state */}
+      {/* CONTENT LAYOUT */}
+      <div className="flex flex-1 pt-[24px]">
         <RecruiterSidebar active="Upload" setCollapsed={setCollapsed} />
  
-        {/* MAIN CONTENT */}
         <main
-          className="
-            flex-1
-            p-4 md:p-10
-            transition-all
-            flex justify-center
-          "
-          // ⭐ Dynamic margin so card centers correctly
+          className="flex-1 p-4 md:p-10 transition-all flex justify-center"
           style={{ marginLeft: collapsed ? "5rem" : "18rem" }}
         >
- 
           {/* CARD */}
           <div
             className="
-              max-w-lg
-              w-full
-              bg-white
-              shadow-xl
-              p-6 md:p-10
-              rounded-2xl
-              border
-              mt-4
-              mx-auto
+              max-w-lg w-full bg-white shadow-xl p-6 md:p-10
+              rounded-2xl border mx-auto relative
             "
           >
- 
-            <h2 className="text-2xl font-bold text-center mb-6 text-[#0F394D]">
-              Upload Resume
-            </h2>
- 
             <form onSubmit={handleSubmit} className="space-y-6">
  
-              {/* UPLOAD BOX */}
+              {/* UPLOAD ZONE */}
               <div
-                className="
-                  border-2 border-dashed border-[#21B0BE]/40
-                  rounded-xl
-                  h-52 md:h-64
-                  flex flex-col items-center justify-center
-                  text-center
-                  hover:border-[#21B0BE]
-                  transition
-                "
+                ref={dropRef}
+                className={`
+                  relative border-2 border-dashed rounded-xl
+                  h-52 md:h-64 flex flex-col items-center justify-center
+                  text-center transition
+                  ${isDragging ? "border-[#21B0BE] bg-[#E9F9FB]" : "border-[#21B0BE]/40"}
+                `}
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
               >
-                <UploadCloud className="text-[#21B0BE] w-12 md:w-14 h-12 md:h-14 mb-4" />
- 
-                <p className="text-gray-600 text-md md:text-lg">Drag & Drop files</p>
-                <p className="text-gray-400 text-sm mb-4">or</p>
- 
-                <label className="cursor-pointer">
-                  <span
+                {/* Drag Overlay */}
+                {isDragging && (
+                  <div
                     className="
-                      bg-gradient-to-r from-[#073C4D] to-[#1AB8C0]
-                      px-6 md:px-8 py-2
-                      rounded-full
-                      text-white
-                      font-medium
-                      shadow-md
-                      hover:shadow-lg
-                      transition
+                      absolute inset-0 flex items-center justify-center
+                      bg-[#E9F9FB]/70 rounded-xl text-[#0F394D]
+                      text-xl font-semibold backdrop-blur-sm
                     "
                   >
+                    Drop files to upload
+                  </div>
+                )}
+ 
+                <UploadCloud className="text-[#21B0BE] w-12 h-12 mb-4 pointer-events-none" />
+ 
+                <p
+                  className="text-gray-700 pointer-events-none"
+                  style={{ fontFamily: "Times New Roman", fontSize: "15px" }}
+                >
+                  Upload your resumes here
+                </p>
+ 
+                <p className="text-gray-400 text-sm mb-4 pointer-events-none">or</p>
+ 
+                <label className="cursor-pointer z-10">
+                  <span className="
+                    bg-gradient-to-r from-[#073C4D] to-[#1AB8C0]
+                    px-6 py-2 rounded-full text-white font-medium shadow-md
+                    hover:shadow-lg transition
+                  ">
                     Browse
                   </span>
  
-                  <input type="file" multiple className="hidden" onChange={handleFileChange} />
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.txt,.rtf"
+                    multiple
+                    className="hidden"
+                    onChange={handleFileChange}
+                  />
                 </label>
               </div>
  
@@ -238,7 +273,7 @@ const Upload = () => {
                     min="0"
                     value={salary}
                     onChange={(e) => setSalary(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-[#21B0BE] focus:outline-none"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
                     placeholder="Enter amount"
                   />
                 </div>
@@ -250,7 +285,7 @@ const Upload = () => {
                   <select
                     value={salaryCurrency}
                     onChange={(e) => setSalaryCurrency(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-[#21B0BE] focus:outline-none"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
                   >
                     <option value="EUR">EUR</option>
                     <option value="GBP">GBP</option>
@@ -269,7 +304,7 @@ const Upload = () => {
                 <select
                   value={candidateType}
                   onChange={(e) => setCandidateType(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-[#21B0BE] focus:outline-none"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
                 >
                   <option value="internal">Internal</option>
                   <option value="external">External</option>
@@ -287,9 +322,10 @@ const Upload = () => {
                 disabled={uploading || !files.length}
                 className={`
                   w-full py-3 rounded-lg text-white shadow
-                  ${uploading || !files.length
-                    ? "bg-gray-400 cursor-not-allowed"
-                    : "bg-gradient-to-r from-[#073C4D] to-[#1AB8C0] hover:opacity-90"
+                  ${
+                    uploading || !files.length
+                      ? "bg-gray-400 cursor-not-allowed"
+                      : "bg-gradient-to-r from-[#073C4D] to-[#1AB8C0] hover:opacity-90"
                   }
                 `}
               >
