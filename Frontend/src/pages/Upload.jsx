@@ -1,6 +1,12 @@
 // src/pages/Upload.jsx
 import React, { useState, useRef } from "react";
-import { UploadCloud, CheckCircle, XCircle, Info } from "lucide-react";
+import {
+  UploadCloud,
+  CheckCircle,
+  XCircle,
+  Info,
+  FileText,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
  
 import RecruiterSidebar from "../components/sidebar/RecruiterSidebar";
@@ -14,6 +20,13 @@ const calculateFileHash = async (file) => {
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+};
+ 
+// Format file size
+const formatSize = (bytes) => {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 };
  
 const Upload = () => {
@@ -35,33 +48,34 @@ const Upload = () => {
   const [salaryCurrency, setSalaryCurrency] = useState("EUR");
   const [candidateType, setCandidateType] = useState("external");
  
-  // ---------------- DRAG & DROP (Final Production-Grade) ----------------
+  // ---------------- DRAG & DROP ----------------
   const dropRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
  
   const handleDragEnter = (e) => {
+    if (files.length > 0) return;
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(true);
   };
  
   const handleDragLeave = (e) => {
+    if (files.length > 0) return;
     e.preventDefault();
     e.stopPropagation();
- 
-    // Close highlight ONLY if leaving the container entirely
     if (dropRef.current && !dropRef.current.contains(e.relatedTarget)) {
       setIsDragging(false);
     }
   };
  
   const handleDragOver = (e) => {
+    if (files.length > 0) return;
     e.preventDefault();
     e.stopPropagation();
-    e.dataTransfer.dropEffect = "copy"; // REQUIRED for Chrome/Safari
   };
  
   const handleDrop = (e) => {
+    if (files.length > 0) return;
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
@@ -71,7 +85,13 @@ const Upload = () => {
   };
  
   const handleFileChange = (e) => {
+    if (files.length > 0) return;
     setFiles(Array.from(e.target.files));
+  };
+ 
+  const resetSelection = () => {
+    setFiles([]);
+    setIsDragging(false);
   };
  
   // ---------------- MAIN UPLOAD FUNCTION ----------------
@@ -98,7 +118,6 @@ const Upload = () => {
     try {
       for (const file of files) {
         setUploadStatus(`Checking ${file.name}…`);
- 
         const hash = await calculateFileHash(file);
  
         const checkRes = await fetch(`${API_BASE_URL}/check-hashes/`, {
@@ -108,7 +127,6 @@ const Upload = () => {
         });
  
         const checkData = await checkRes.json();
- 
         if (checkData.existing_hashes?.length > 0) {
           duplicateFiles.push(file.name);
           continue;
@@ -131,7 +149,6 @@ const Upload = () => {
         });
  
         const data = await uploadRes.json();
- 
         if (!uploadRes.ok) {
           errorFiles.push(`${file.name}: ${data.error || "Upload failed"}`);
         } else {
@@ -155,12 +172,15 @@ const Upload = () => {
       }
  
       modal.title =
-        successFiles.length > 0 ? "Upload Complete" :
-        duplicateFiles.length > 0 ? "Files Already Exist" :
-        "Upload Failed";
+        successFiles.length > 0
+          ? "Upload Complete"
+          : duplicateFiles.length > 0
+          ? "Files Already Exist"
+          : "Upload Failed";
  
       setModalState(modal);
       setFiles([]);
+ 
     } catch (err) {
       setModalState({
         isOpen: true,
@@ -168,6 +188,7 @@ const Upload = () => {
         message: err.message,
         type: "error",
       });
+ 
     } finally {
       setUploading(false);
       setUploadStatus("");
@@ -176,27 +197,30 @@ const Upload = () => {
  
   return (
     <div className="min-h-screen flex flex-col bg-[#F5F5F5]">
- 
       {/* GLOBAL HEADER */}
       <GlobalHeader />
  
-      {/* PAGE HEADER */}
-      <div className="text-center mt-2 mb-4"> <br></br> <br></br> <br></br>
-        <h1 className="text-3xl font-bold text-[#073C4D]">Upload Resume</h1>
-        <p className="text-gray-600 text-md italic ">
+      {/* LEFT-ALIGNED PAGE HEADER */}
+     <div
+  className="mt-[100px] mb-6 transition-all"
+  style={{ marginLeft: collapsed ? "6rem" : "19rem" }}
+>
+ 
+        <h1 className="text-3xl font-bold text-[#073C4D]">
+          Upload Resume
+        </h1>
+        <p className="text-gray-600 text-md italic mt-1">
           Submit and manage your resumes securely for screening and processing
         </p>
       </div>
  
-      {/* CONTENT LAYOUT */}
-      <div className="flex flex-1 pt-[24px]">
+      <div className="flex flex-1 pt-[10px]">
         <RecruiterSidebar active="Upload" setCollapsed={setCollapsed} />
  
         <main
           className="flex-1 p-4 md:p-10 transition-all flex justify-center"
           style={{ marginLeft: collapsed ? "5rem" : "18rem" }}
         >
-          {/* CARD */}
           <div
             className="
               max-w-lg w-full bg-white shadow-xl p-6 md:p-10
@@ -205,61 +229,94 @@ const Upload = () => {
           >
             <form onSubmit={handleSubmit} className="space-y-6">
  
-              {/* UPLOAD ZONE */}
+              {/* UPLOAD BOX */}
               <div
                 ref={dropRef}
                 className={`
                   relative border-2 border-dashed rounded-xl
-                  h-52 md:h-64 flex flex-col items-center justify-center
+                  h-52 md:h-60 flex flex-col items-center justify-center
                   text-center transition
-                  ${isDragging ? "border-[#21B0BE] bg-[#E9F9FB]" : "border-[#21B0BE]/40"}
+                  ${
+                    files.length > 0
+                      ? "border-gray-300 bg-gray-100 cursor-not-allowed"
+                      : isDragging
+                      ? "border-[#21B0BE] bg-[#E9F9FB]"
+                      : "border-[#21B0BE]/40"
+                  }
                 `}
                 onDragEnter={handleDragEnter}
                 onDragLeave={handleDragLeave}
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
               >
-                {/* Drag Overlay */}
-                {isDragging && (
-                  <div
-                    className="
-                      absolute inset-0 flex items-center justify-center
-                      bg-[#E9F9FB]/70 rounded-xl text-[#0F394D]
-                      text-xl font-semibold backdrop-blur-sm
-                    "
-                  >
-                    Drop files to upload
+                {files.length > 0 ? (
+                  <div className="text-center">
+                    <FileText className="w-10 h-10 mx-auto text-[#073C4D]" />
+                    <p className="mt-3 text-lg font-semibold text-[#073C4D] flex justify-center items-center gap-2">
+                      📄 {files.length} file(s) selected
+                    </p>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Proceed to fill the details below
+                    </p>
+ 
+                    {/* RESET BUTTON */}
+                    <button
+                      type="button"
+                      onClick={resetSelection}
+                      className="
+                        mt-4 px-5 py-2 rounded-full text-white text-sm
+                        bg-gradient-to-r from-[#073C4D] to-[#1AB8C0]
+                        shadow-md hover:opacity-90 transition
+                      "
+                    >
+                      Reset Selection
+                    </button>
                   </div>
+                ) : (
+                  <>
+                    {isDragging && (
+                      <div
+                        className="
+                          absolute inset-0 flex items-center justify-center
+                          bg-[#E9F9FB]/70 rounded-xl text-[#0F394D]
+                          text-xl font-semibold backdrop-blur-sm
+                        "
+                      >
+                        Drop files to upload
+                      </div>
+                    )}
+ 
+                    <UploadCloud className="text-[#21B0BE] w-12 h-12 mb-4 pointer-events-none" />
+                    <p
+                      className="text-gray-700 pointer-events-none"
+                      style={{ fontFamily: "Times New Roman", fontSize: "15px" }}
+                    >
+                      Upload your resumes here
+                    </p>
+                    <p className="text-gray-400 text-sm mb-4 pointer-events-none">
+                      or
+                    </p>
+ 
+                    <label className="cursor-pointer z-10">
+                      <span
+                        className="
+                          bg-gradient-to-r from-[#073C4D] to-[#1AB8C0]
+                          px-6 py-2 rounded-full text-white font-medium shadow-md
+                          hover:shadow-lg transition
+                        "
+                      >
+                        Browse
+                      </span>
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx,.txt,.rtf"
+                        multiple
+                        className="hidden"
+                        onChange={handleFileChange}
+                      />
+                    </label>
+                  </>
                 )}
- 
-                <UploadCloud className="text-[#21B0BE] w-12 h-12 mb-4 pointer-events-none" />
- 
-                <p
-                  className="text-gray-700 pointer-events-none"
-                  style={{ fontFamily: "Times New Roman", fontSize: "15px" }}
-                >
-                  Upload your resumes here
-                </p>
- 
-                <p className="text-gray-400 text-sm mb-4 pointer-events-none">or</p>
- 
-                <label className="cursor-pointer z-10">
-                  <span className="
-                    bg-gradient-to-r from-[#073C4D] to-[#1AB8C0]
-                    px-6 py-2 rounded-full text-white font-medium shadow-md
-                    hover:shadow-lg transition
-                  ">
-                    Browse
-                  </span>
- 
-                  <input
-                    type="file"
-                    accept=".pdf,.doc,.docx,.txt,.rtf"
-                    multiple
-                    className="hidden"
-                    onChange={handleFileChange}
-                  />
-                </label>
               </div>
  
               {/* SALARY + CURRENCY */}
@@ -311,12 +368,10 @@ const Upload = () => {
                 </select>
               </div>
  
-              {/* STATUS */}
               {uploadStatus && (
                 <p className="text-sm text-gray-600">{uploadStatus}</p>
               )}
  
-              {/* SUBMIT BUTTON */}
               <button
                 type="submit"
                 disabled={uploading || !files.length}
@@ -336,7 +391,6 @@ const Upload = () => {
         </main>
       </div>
  
-      {/* MODAL */}
       <CustomAlertModal
         isOpen={modalState.isOpen}
         title={modalState.title}
