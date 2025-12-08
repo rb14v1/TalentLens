@@ -1,6 +1,6 @@
-# ProMatch — AI-Powered Resume Screening & Job Matching Platform
+# TalentLens — AI-Powered Resume Screening & Job Matching Platform
 
-ProMatch is an enterprise-grade recruitment platform designed to automate resume screening and semantic job matching. It leverages Large Language Models (LLM) and Vector Search to match candidates to job descriptions based on skills and context, featuring dedicated dashboards for Recruiters and Hiring Managers.
+TalentLens is an enterprise-grade recruitment platform designed to automate resume screening and semantic job matching. It leverages Large Language Models (LLM) and Vector Search to match candidates to job descriptions based on skills and context, featuring dedicated dashboards for Recruiters and Hiring Managers.
 
 ---
 
