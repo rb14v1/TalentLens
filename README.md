@@ -102,6 +102,7 @@ Frontend/
 │   │   ├── PublishedJDs.jsx
 │   │   ├── RecruiterDashboard.jsx
 │   │   ├── RecruiterHome.jsx
+|   |   ├── RecruiterViewJDs.jsx
 │   │   ├── Register.jsx
 │   │   ├── Retrieve.jsx
 │   │   ├── Upload.jsx
