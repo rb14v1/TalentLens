@@ -498,53 +498,89 @@ def get_fuzzy(payload, targets):
     return None
  
 # ✅ SMART LIST FUNCTION (Deduplicates Jobs & Fixes Status)
+# In Backend/resume/job_views.py
+
 @api_view(['GET'])
 def list_jobs(request):
     try:
         user_id = request.session.get('user_id')
         if not user_id: return Response({"error": "Unauthorized"}, status=401)
-       
-        # 1. Search ALL Collections (Universal View)
+        
+        # 1. Get Params
+        try:
+            limit = int(request.query_params.get("limit", 12))
+            offset = int(request.query_params.get("offset", 0))
+        except ValueError:
+            limit = 12
+            offset = 0
+            
+        target_dept = request.query_params.get("department", "All")
+
+        # 2. Collect All Jobs
         unique_collections = set(DEPARTMENT_MAPPING.values())
-        job_map = {} # This will store unique jobs by ID
- 
+        job_map = {} 
+
         for collection_name in unique_collections:
             try:
-                # Fetch all records
                 records, _ = qdrant_client.scroll(
                     collection_name=collection_name,
-                    limit=1000,
+                    limit=1000, 
                     with_payload=True,
                     with_vectors=False
                 )
-               
+                
                 for record in records:
                     p = record.payload or {}
                     job_id = record.id
-                   
-                    # Extract Data safely
-                    title = get_fuzzy(p, ["job_title", "jobTitle", "title"]) or "Untitled"
-                    manager_name = get_fuzzy(p, ["hiringManagerName", "creator_name", "name"]) or "Unknown"
-                    manager_email = get_fuzzy(p, ["creator_email", "email"]) or ""
-                    dept = get_fuzzy(p, ["department", "dept"]) or "General"
-                    s3_url = get_fuzzy(p, ["s3_url", "fileUrl", "url"])
-                    file_name = get_fuzzy(p, ["file_name", "fileName"])
-                   
-                    # Fix Status: Default to "Open" if missing
-                    status_val = p.get("status")
-                    if not status_val: status_val = "Open"
-                   
-                    # Date Logic
-                    date_val = get_fuzzy(p, ["postingDate", "posting_date", "created_at"]) or "Recently"
- 
+                    
+                    # --- ROBUST DATA EXTRACTION ---
+                    
+                    # 1. Title
+                    title = p.get("jobTitle") or p.get("job_title") or p.get("title") or "Untitled"
+
+                    # 2. Manager Name (Try all known keys)
+                    manager_name = (
+                        p.get("hiringManagerName") or 
+                        p.get("creator_name") or 
+                        p.get("name") or 
+                        get_fuzzy(p, ["manager", "creator"]) or 
+                        "Unknown"
+                    )
+
+                    # 3. Manager Email (Try all known keys)
+                    manager_email = (
+                        p.get("contactEmail") or 
+                        p.get("creator_email") or 
+                        p.get("email") or 
+                        ""
+                    )
+
+                    # 4. Department
+                    dept = (
+                        p.get("department") or 
+                        p.get("dept") or 
+                        collection_name.replace("_", " ").title() or 
+                        "General"
+                    )
+
+                    # 5. File Info
+                    s3_url = p.get("s3_url") or p.get("fileUrl") or p.get("url")
+                    file_name = p.get("file_name") or p.get("fileName")
+                    
+                    # 6. Status & Dates
+                    status_val = p.get("status") or "Open"
+                    date_val = p.get("postingDate") or p.get("posting_date") or p.get("created_at") or ""
+
                     job_data = {
                         "id": job_id,
                         "title": title,
-                        "creator_name": manager_name,
-                        "email": manager_email,
+                        "creator_name": manager_name,  # Key for frontend match
+                        "hiringManagerName": manager_name, # Backup key
+                        "email": manager_email,        # Key for frontend match
+                        "creator_email": manager_email, # Backup key
                         "department": dept,
                         "location": p.get("location", "Remote"),
-                        "type": p.get("job_type", "Full-time"),
+                        "type": p.get("jobType") or p.get("job_type") or "Full-time",
                         "status": status_val,
                         "created_at": date_val,
                         "s3_url": s3_url,
@@ -552,24 +588,41 @@ def list_jobs(request):
                         "salary": p.get("salary"),
                         "openings": p.get("openings")
                     }
- 
-                    # ✅ SMART DEDUPLICATION
-                    # If we haven't seen this ID yet, add it.
+
+                    # Deduplication Logic
                     if job_id not in job_map:
                         job_map[job_id] = job_data
                     else:
-                        # If we HAVE seen it, check if the new one is "Better" (Open/Active)
                         existing = job_map[job_id]
-                        if existing["status"] == "Closed" and status_val in ["Open", "Active"]:
-                            # The new one is Open, so replace the Closed one!
+                        if existing.get("status") == "Closed" and status_val in ["Open", "Active"]:
                             job_map[job_id] = job_data
-                           
-            except Exception:
-                continue
- 
-        # Return clean, unique list
-        return Response({"results": list(job_map.values())}, status=200)
- 
+                            
+            except Exception as e:
+                print(f"Error processing collection {collection_name}: {e}")
+                continue 
+
+        all_jobs = list(job_map.values())
+
+        # 3. Apply Filter
+        if target_dept != "All":
+            all_jobs = [j for j in all_jobs if j["department"] == target_dept]
+
+        # Sort for stability
+        all_jobs.sort(key=lambda x: (x.get("created_at", ""), x.get("id", "")), reverse=True)
+
+        # 4. Pagination
+        total = len(all_jobs)
+        start = offset
+        end = offset + limit
+        paginated_jobs = all_jobs[start:end]
+        
+        next_offset = end if end < total else None
+
+        return Response({
+            "results": paginated_jobs, 
+            "next_offset": next_offset
+        }, status=200)
+
     except Exception as e:
         return Response({"error": str(e)}, status=500)
    

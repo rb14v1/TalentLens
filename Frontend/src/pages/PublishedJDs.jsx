@@ -1,6 +1,6 @@
 // src/pages/PublishedJDs.jsx
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -17,20 +17,29 @@ import {
 } from "lucide-react";
 
 import HiringManagerSidebar from "../components/sidebar/HiringManagerSidebar";
-import GlobalHeader from "../components/sidebar/GlobalHeader";   // ⭐ ADDED
+import GlobalHeader from "../components/sidebar/GlobalHeader"; 
 import { API_BASE_URL } from "../config";
 
 const PublishedJDs = () => {
   const navigate = useNavigate();
 
+  // Data States
   const [myJobs, setMyJobs] = useState([]);
   const [deptJobs, setDeptJobs] = useState([]);
+  const [userData, setUserData] = useState(null); // Store user info for filtering subsequent pages
+
+  // Loading & Pagination States
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  
+  // ✅ Pagination Refs & State
+  const nextOffsetRef = useRef(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
 
-  const [collapsed, setCollapsed] = useState(true); // ⭐ Adaptive sidebar
-
+  const [collapsed, setCollapsed] = useState(true); 
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null });
+  const [statusModal, setStatusModal] = useState({ show: false, job: null });
 
   const safeMatch = (val1, val2) => {
     if (!val1 || !val2) return false;
@@ -41,59 +50,127 @@ const PublishedJDs = () => {
     }
   };
 
+  // 1. Fetch User Profile FIRST (Run once)
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchUser = async () => {
       try {
-        setLoading(true);
-        setError(null);
-
         const userRes = await fetch(`${API_BASE_URL}/user/profile/`, { credentials: "include" });
         if (!userRes.ok) throw new Error("Could not fetch user profile");
-        const userData = await userRes.json();
-
-        const userEmail = userData.email || "";
-        const userName = userData.name || "";
-
-        const jobsRes = await fetch(`${API_BASE_URL}/jobs/list/`, { credentials: "include" });
-        if (!jobsRes.ok) throw new Error("Could not fetch jobs list");
-        const jobsJson = await jobsRes.json();
-
-        const allJobs = Array.isArray(jobsJson.results)
-          ? jobsJson.results
-          : Array.isArray(jobsJson)
-          ? jobsJson
-          : [];
-
-        const mine = [];
-        const others = [];
-
-        allJobs.forEach((job) => {
-          if (!job) return;
-
-          const jobEmail = job.email || job.creator_email;
-          const isEmailMatch = safeMatch(jobEmail, userEmail);
-          const jobName = job.creator_name || job.hiringManagerName;
-          const isNameMatch = safeMatch(jobName, userName);
-
-          if (isEmailMatch || isNameMatch) {
-            mine.push(job);
-          } else {
-            others.push(job);
-          }
-        });
-
-        setMyJobs(mine);
-        setDeptJobs(others);
+        const data = await userRes.json();
+        setUserData(data);
       } catch (err) {
         console.error("Error:", err);
         setError(err.message);
-      } finally {
         setLoading(false);
       }
     };
-
-    fetchData();
+    fetchUser();
   }, []);
+
+  // 2. Fetch Jobs (Paginated) - Runs when userData is ready or on scroll
+  const fetchJobs = useCallback(async (isInitial = false) => {
+    if (!userData) return; // Don't fetch jobs until we know who the user is
+
+    try {
+      if (isInitial) {
+        setLoading(true);
+      } else {
+        setIsFetchingMore(true);
+      }
+
+      const limit = 12;
+      const offset = isInitial ? 0 : nextOffsetRef.current;
+
+      // Safety check
+      if (!isInitial && offset === null) {
+          setIsFetchingMore(false);
+          return;
+      }
+
+      // ✅ Call Backend with limit & offset
+      const res = await fetch(`${API_BASE_URL}/jobs/list/?limit=${limit}&offset=${offset}`, { 
+          credentials: "include" 
+      });
+      
+      if (!res.ok) throw new Error("Could not fetch jobs list");
+      const data = await res.json();
+
+      const newJobs = data.results || [];
+      const newOffset = data.next_offset;
+
+      // Update Ref for next time
+      nextOffsetRef.current = newOffset;
+
+      // Filter Logic using stored userData
+      const userEmail = userData.email || "";
+      const userName = userData.name || "";
+      
+      const mine = [];
+      const others = [];
+
+      newJobs.forEach((job) => {
+        if (!job) return;
+
+        const jobEmail = job.email || job.creator_email;
+        const isEmailMatch = safeMatch(jobEmail, userEmail);
+        const jobName = job.creator_name || job.hiringManagerName;
+        const isNameMatch = safeMatch(jobName, userName);
+
+        if (isEmailMatch || isNameMatch) {
+          mine.push(job);
+        } else {
+          others.push(job);
+        }
+      });
+
+      // Update State (Append if scrolling, Set if initial)
+      if (isInitial) {
+        setMyJobs(mine);
+        setDeptJobs(others);
+      } else {
+        setMyJobs(prev => [...prev, ...mine]);
+        setDeptJobs(prev => [...prev, ...others]);
+      }
+
+      setHasMore(newOffset !== null);
+
+    } catch (err) {
+      console.error("Error:", err);
+      if (isInitial) setError(err.message);
+    } finally {
+      setLoading(false);
+      setIsFetchingMore(false);
+    }
+  }, [userData]); // Re-create this function only when userData arrives
+
+  // 3. Trigger Initial Job Fetch when User Data is loaded
+  useEffect(() => {
+    if (userData) {
+        nextOffsetRef.current = 0;
+        setHasMore(true);
+        fetchJobs(true);
+    }
+  }, [userData, fetchJobs]);
+
+  // 4. Infinite Scroll Observer
+  const observer = useRef();
+  const lastElementRef = useCallback((node) => {
+    if (loading || isFetchingMore) return;
+    if (observer.current) observer.current.disconnect();
+
+    observer.current = new IntersectionObserver(entries => {
+        if (entries[0].isIntersecting && hasMore) {
+            if (nextOffsetRef.current !== null) {
+                fetchJobs(false);
+            }
+        }
+    });
+
+    if (node) observer.current.observe(node);
+  }, [loading, isFetchingMore, hasMore, fetchJobs]);
+
+
+  // --- KEEPING YOUR ORIGINAL HANDLERS EXACTLY THE SAME ---
 
   const handleDeleteClick = (id) => {
     setDeleteModal({ show: true, id });
@@ -118,9 +195,6 @@ const PublishedJDs = () => {
     }
   };
 
-  // Status Modal
-  const [statusModal, setStatusModal] = useState({ show: false, job: null });
-
   const handleToggleStatus = (job) => {
     setStatusModal({ show: true, job });
   };
@@ -141,12 +215,10 @@ const PublishedJDs = () => {
       const data = await res.json();
       const newStatus = data.status;
 
-      setMyJobs((prev) =>
-        prev.map((j) => (j.id === job.id ? { ...j, status: newStatus } : j))
-      );
-      setDeptJobs((prev) =>
-        prev.map((j) => (j.id === job.id ? { ...j, status: newStatus } : j))
-      );
+      // Update both lists locally
+      const updateList = (list) => list.map((j) => (j.id === job.id ? { ...j, status: newStatus } : j));
+      setMyJobs(updateList);
+      setDeptJobs(updateList);
 
       setStatusModal({ show: false, job: null });
     } catch (e) {
@@ -156,11 +228,9 @@ const PublishedJDs = () => {
 
   const handleViewJD = (job) => {
     if (!job.id) return alert("Invalid Job ID");
-
     const safeTitle = (job.title || "Job")
       .replace(/\s+/g, "-")
       .replace(/[^a-zA-Z0-9-]/g, "");
-
     const frontendUrl = `/view-job/${job.id}/${safeTitle}`;
     window.open(frontendUrl, "_blank");
   };
@@ -176,7 +246,6 @@ const PublishedJDs = () => {
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
-
       link.href = url;
       link.setAttribute("download", job.file_name || "job.pdf");
       document.body.appendChild(link);
@@ -202,86 +271,51 @@ const PublishedJDs = () => {
         ${isActive ? "border-gray-100" : "border-gray-200 bg-gray-50/50"}
         hover:shadow-md`}
       >
-        {/* HEADER */}
         <div className="flex justify-between items-start mb-3">
           <div className="flex-1 pr-4">
-            <h3
-              className={`text-lg font-bold leading-tight ${
-                isActive ? "text-[#0F394D]" : "text-gray-500"
-              }`}
-            >
+            <h3 className={`text-lg font-bold leading-tight ${isActive ? "text-[#0F394D]" : "text-gray-500"}`}>
               {job.title || "Untitled"}
             </h3>
             <p className="text-gray-500 font-medium text-xs mt-1">
               {job.department || "General"}
             </p>
-
             {!isMine && (
               <div className="text-[10px] text-gray-400 mt-1">
                 By: {job.creator_name || "Unknown"}
               </div>
             )}
           </div>
-
           <button
             onClick={() => handleToggleStatus(job)}
-            className={`
-              text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full flex items-center gap-1 transition shadow-sm cursor-pointer hover:opacity-80
-              ${
-                isActive
-                  ? "bg-green-100 text-green-700 border border-green-200"
-                  : "bg-red-100 text-red-600 border border-red-200"
-              }
-            `}
+            className={`text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full flex items-center gap-1 transition shadow-sm cursor-pointer hover:opacity-80
+              ${isActive ? "bg-green-100 text-green-700 border border-green-200" : "bg-red-100 text-red-600 border border-red-200"}`}
             title="Click to toggle status"
           >
             {isActive ? <CheckCircle size={10} /> : <XCircle size={10} />}
             {isActive ? "Active" : "Closed"}
           </button>
         </div>
-
-        {/* DETAILS */}
         <div className="flex items-center gap-2 text-sm text-gray-600 mb-4">
           <span className="bg-gray-50 px-2 py-0.5 rounded-md border border-gray-100 flex gap-1 items-center text-[11px] font-medium">
-            <MapPin size={12} className="text-gray-400" />{" "}
-            {job.location || "Remote"}
+            <MapPin size={12} className="text-gray-400" /> {job.location || "Remote"}
           </span>
           <span className="bg-gray-50 px-2 py-0.5 rounded-md border border-gray-100 flex gap-1 items-center text-[11px] font-medium">
-            <Briefcase size={12} className="text-gray-400" />{" "}
-            {job.type || "Full-time"}
+            <Briefcase size={12} className="text-gray-400" /> {job.type || "Full-time"}
           </span>
         </div>
-
-        {/* FOOTER BUTTONS */}
         <div className="border-t border-gray-100 pt-3 flex items-center gap-2">
-          <button
-            onClick={() => handleViewJD(job)}
-            className="flex-1 bg-[#21B0BE] text-white px-3 py-1.5 rounded-lg flex justify-center items-center gap-1.5 hover:bg-[#198d99] transition font-medium text-xs shadow-sm"
-          >
+          <button onClick={() => handleViewJD(job)} className="flex-1 bg-[#21B0BE] text-white px-3 py-1.5 rounded-lg flex justify-center items-center gap-1.5 hover:bg-[#198d99] transition font-medium text-xs shadow-sm">
             <Eye size={14} /> View
           </button>
-
           {isMine && (
-            <button
-              onClick={() => handleEdit(job)}
-              className="flex-1 bg-[#21B0BE] text-white px-3 py-1.5 rounded-lg flex justify-center items-center gap-1.5 hover:bg-[#198d99] transition font-medium text-xs shadow-sm"
-            >
+            <button onClick={() => handleEdit(job)} className="flex-1 bg-[#21B0BE] text-white px-3 py-1.5 rounded-lg flex justify-center items-center gap-1.5 hover:bg-[#198d99] transition font-medium text-xs shadow-sm">
               <Edit size={14} /> Edit
             </button>
           )}
-
-          <button
-            onClick={() => handleDownload(job)}
-            className="flex-1 bg-white border border-[#21B0BE] text-[#21B0BE] px-3 py-1.5 rounded-lg flex justify-center items-center gap-1.5 hover:bg-blue-50 transition font-medium text-xs shadow-sm"
-          >
+          <button onClick={() => handleDownload(job)} className="flex-1 bg-white border border-[#21B0BE] text-[#21B0BE] px-3 py-1.5 rounded-lg flex justify-center items-center gap-1.5 hover:bg-blue-50 transition font-medium text-xs shadow-sm">
             <Download size={14} /> Download
           </button>
-
-          <button
-            onClick={() => handleDeleteClick(job.id)}
-            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition border border-transparent hover:border-red-100"
-            title="Delete Job"
-          >
+          <button onClick={() => handleDeleteClick(job.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition border border-transparent hover:border-red-100" title="Delete Job">
             <Trash2 size={16} />
           </button>
         </div>
@@ -295,88 +329,87 @@ const PublishedJDs = () => {
         <AlertTriangle size={48} className="mx-auto mb-4" />
         <h2 className="text-2xl font-bold">Something went wrong</h2>
         <p className="mt-2">{error}</p>
-        <button
-          onClick={() => window.location.reload()}
-          className="mt-4 bg-gray-800 text-white px-4 py-2 rounded"
-        >
-          Retry
-        </button>
+        <button onClick={() => window.location.reload()} className="mt-4 bg-gray-800 text-white px-4 py-2 rounded">Retry</button>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen flex flex-col bg-[#E9F1F4]">
-      {/* ⭐ GLOBAL HEADER */}
       <GlobalHeader />
 
       <div className="flex flex-1 pt-[72px]">
-        {/* ⭐ SIDEBAR -- adaptive, below header */}
         <HiringManagerSidebar setCollapsed={setCollapsed} />
 
-        {/* ⭐ MAIN CONTENT */}
         <main
           className="flex-1 py-10 pr-10 pl-10 transition-all duration-300"
-          style={{
-            marginLeft: collapsed ? "5rem" : "18rem",
-          }}
+          style={{ marginLeft: collapsed ? "5rem" : "18rem" }}
         >
-          {/* <button
-            onClick={() => navigate(-1)}
-            className="absolute top-28 right-10 bg-white text-[#0F394D] px-5 py-2 rounded-full shadow hover:bg-gray-50"
-          >
-            Back
-          </button> */}
-
           <h1 className="text-3xl font-bold text-[#0D1F29] mb-8">
             Published Job Descriptions
           </h1>
 
-          {loading ? (
+          {/* INITIAL LOADING STATE */}
+          {loading && myJobs.length === 0 && deptJobs.length === 0 ? (
             <div className="flex justify-center h-64">
               <Loader className="animate-spin text-[#21B0BE]" size={40} />
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-              <div>
-                <h2 className="text-xl font-bold text-[#0F394D] mb-4 border-b-2 border-[#21B0BE] pb-2 flex justify-between">
-                  My Job Postings{" "}
-                  <span className="bg-[#21B0BE]/10 text-[#0F394D] text-xs px-2 py-1 rounded-full">
-                    {myJobs.length}
-                  </span>
-                </h2>
+            <>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                <div>
+                  <h2 className="text-xl font-bold text-[#0F394D] mb-4 border-b-2 border-[#21B0BE] pb-2 flex justify-between">
+                    My Job Postings{" "}
+                    <span className="bg-[#21B0BE]/10 text-[#0F394D] text-xs px-2 py-1 rounded-full">
+                      {myJobs.length}
+                    </span>
+                  </h2>
 
-                {myJobs.length > 0 ? (
-                  myJobs.map((job) => <JobCard key={job.id} job={job} isMine={true} />)
-                ) : (
-                  <p className="text-gray-400 italic mt-4 p-4 border border-dashed rounded-lg bg-white">
-                    No jobs found for you.
-                  </p>
-                )}
+                  {myJobs.length > 0 ? (
+                    myJobs.map((job) => <JobCard key={job.id} job={job} isMine={true} />)
+                  ) : (
+                    // Only show this message if NOT loading and list is empty
+                    !isFetchingMore && !loading && (
+                      <p className="text-gray-400 italic mt-4 p-4 border border-dashed rounded-lg bg-white">
+                        No jobs found for you (yet).
+                      </p>
+                    )
+                  )}
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-bold text-[#0F394D] mb-4 border-b-2 border-gray-300 pb-2 flex justify-between">
+                    Department Postings{" "}
+                    <span className="bg-gray-200 text-gray-600 text-xs px-2 py-1 rounded-full">
+                      {deptJobs.length}
+                    </span>
+                  </h2>
+
+                  {deptJobs.length > 0 ? (
+                    deptJobs.map((job) => <JobCard key={job.id} job={job} isMine={false} />)
+                  ) : (
+                    !isFetchingMore && !loading && (
+                      <p className="text-gray-400 italic mt-4 p-4 border border-dashed rounded-lg bg-white">
+                        No other jobs in this department.
+                      </p>
+                    )
+                  )}
+                </div>
               </div>
 
-              <div>
-                <h2 className="text-xl font-bold text-[#0F394D] mb-4 border-b-2 border-gray-300 pb-2 flex justify-between">
-                  Department Postings{" "}
-                  <span className="bg-gray-200 text-gray-600 text-xs px-2 py-1 rounded-full">
-                    {deptJobs.length}
-                  </span>
-                </h2>
-
-                {deptJobs.length > 0 ? (
-                  deptJobs.map((job) => <JobCard key={job.id} job={job} isMine={false} />)
-                ) : (
-                  <p className="text-gray-400 italic mt-4 p-4 border border-dashed rounded-lg bg-white">
-                    No other jobs in this department.
-                  </p>
-                )}
+              {/* ✅ INFINITE SCROLL TRIGGER & BOTTOM LOADER */}
+              <div ref={lastElementRef} className="h-20 mt-6 flex justify-center items-center">
+                 {isFetchingMore && <Loader className="animate-spin text-[#21B0BE]" size={28} />}
+                 {!hasMore && !isFetchingMore && (myJobs.length > 0 || deptJobs.length > 0) && (
+                     <span className="text-gray-400 text-sm">End of list.</span>
+                 )}
               </div>
-            </div>
+            </>
           )}
         </main>
       </div>
 
-      {/* Delete Modal */}
+      {/* Delete Modal (UNTOUCHED) */}
       {deleteModal.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
@@ -411,7 +444,7 @@ const PublishedJDs = () => {
         </div>
       )}
 
-      {/* STATUS CHANGE MODAL */}
+      {/* STATUS CHANGE MODAL (UNTOUCHED) */}
       {statusModal.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">

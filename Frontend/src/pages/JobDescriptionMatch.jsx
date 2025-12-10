@@ -1,16 +1,23 @@
 // Frontend/src/pages/JobDescriptionMatch.jsx
-import React, { useState , useEffect } from "react";
-import { Upload, Search, ArrowLeft, X, Eye, Sparkles,Loader, CheckCircle } from "lucide-react";
+
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Upload, Search, ArrowLeft, X, Eye, Sparkles, Loader, CheckCircle } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { API_BASE_URL } from "../config";
 import RecruiterSidebar from "../components/sidebar/RecruiterSidebar";
 import GlobalHeader from "../components/sidebar/GlobalHeader";
 
 const JobDescriptionMatch = () => {
+  const [allMatches, setAllMatches] = useState([]); // Stores ALL 100+ resumes
+  const [page, setPage] = useState(1);              // Current page number
+  const [sortOption, setSortOption] = useState("score_desc"); // Default sort
+
   const navigate = useNavigate();
   const location = useLocation();
   // MATCHED: collapsed default and setter like Upload.jsx
   const [collapsed, setCollapsed] = useState(true);
+
+  const observer = useRef();
 
   const [jdFile, setJdFile] = useState(null);
   const [jdText, setJdText] = useState("");
@@ -161,7 +168,9 @@ const JobDescriptionMatch = () => {
 
       setJdText(matchData.jd_text || "");
       setJdKeywords(matchData.jd_keywords || []);
-      setMatchingResumes(matchData.matches || []);
+      setAllMatches(matchData.matches || []); // Store EVERYTHING here
+      setMatchingResumes([]); // Clear visible list temporarily
+      setPage(1);
       setMatchCount(matchData.total_matches || 0);
 
       const minVal =
@@ -204,6 +213,41 @@ const JobDescriptionMatch = () => {
 
     setLoading(false);
   };
+
+  // ✅ NEW: Sorts and Slices the data whenever Page or Sort changes
+  useEffect(() => {
+    let sorted = [...allMatches];
+
+    // 1. Sort
+    if (sortOption === "score_desc") sorted.sort((a, b) => (b.match_percentage || 0) - (a.match_percentage || 0));
+    else if (sortOption === "score_asc") sorted.sort((a, b) => (a.match_percentage || 0) - (b.match_percentage || 0));
+    else if (sortOption === "exp_desc") sorted.sort((a, b) => (b.experience_years || 0) - (a.experience_years || 0));
+    else if (sortOption === "exp_asc") sorted.sort((a, b) => (a.experience_years || 0) - (b.experience_years || 0));
+    else if (sortOption === "name_asc") sorted.sort((a, b) => (a.candidate_name || "").localeCompare(b.candidate_name || ""));
+
+    // 2. Slice (Lazy Load) - Show 10 items per page
+    const visibleCount = page * 10;
+    setMatchingResumes(sorted.slice(0, visibleCount));
+  }, [allMatches, sortOption, page]);
+
+  // ✅ NEW: Reset page when user changes sort order
+  useEffect(() => {
+    setPage(1);
+  }, [sortOption]);
+
+  // ✅ NEW: The Scroll Observer (Detects when you hit bottom)
+  const lastElementRef = useCallback(node => {
+    if (loading) return;
+    if (observer.current) observer.current.disconnect();
+    
+    observer.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && matchingResumes.length < allMatches.length) {
+         setPage(prev => prev + 1); // Load next 10
+      }
+    });
+    
+    if (node) observer.current.observe(node);
+  }, [loading, matchingResumes.length, allMatches.length]);
 
   const toggleResumeSelection = (index) => {
     setSelectedResumes((prev) =>
@@ -453,7 +497,12 @@ const JobDescriptionMatch = () => {
               </div>
 
               <div className="flex-1 overflow-y-auto">
-                {!jdText ? (
+                {loadingPdf ? (
+       <div className="flex flex-col items-center justify-center h-64 text-gray-500">
+          <Loader className="animate-spin text-[#21B0BE] mb-3" size={32} />
+          <p className="font-medium animate-pulse">Loading Job Description...</p>
+       </div>
+              ):  !jdText ? (
                   <p className="text-gray-400 italic text-center mt-20">
                     Job description content here...
                   </p>
@@ -506,47 +555,74 @@ const JobDescriptionMatch = () => {
             </div>
 
             {/* Right: Matching Resumes */}
-            <div className="bg-white rounded-3xl shadow-xl p-6 border border-gray-100 max-h-[700px] overflow-hidden flex flex-col">
-              <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200">
-                <h2 className="text-2xl font-bold text-[#0F394D]">
-                  Matching Resumes
-                </h2>
+            {/* Right: Matching Resumes */}
+<div className="bg-white rounded-3xl shadow-xl p-6 border border-gray-100 max-h-[700px] overflow-hidden flex flex-col">
+  
+  {/* ✅ HEADER SECTION START */}
+  <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200 flex-wrap gap-3">
+    
+    {/* LEFT SIDE: Title + Dropdown */}
+    <div className="flex items-center gap-4">
+      <h2 className="text-2xl font-bold text-[#0F394D]">
+        Matching Resumes
+      </h2>
 
-                {matchingResumes.length > 0 && !submissionMode && (
-                  <button
-                    onClick={() => setSubmissionMode(true)}
-                    className="px-4 py-2 bg-gradient-to-r from-[#21B0BE] to-[#4DD0E1] text-white font-semibold rounded-full shadow-md hover:shadow-lg hover:scale-105 transition-all text-sm"
-                  >
-                    Select
-                  </button>
-                )}
+      {/* SORT DROPDOWN - Now grouped on the left */}
+      {allMatches.length > 0 && (
+        <div className="relative">
+          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 font-bold">⇅</span>
+          <select 
+            value={sortOption}
+            onChange={(e) => setSortOption(e.target.value)}
+            className="pl-7 pr-3 py-1 text-sm border border-gray-300 rounded-lg bg-gray-50 outline-none cursor-pointer hover:border-[#21B0BE] transition-colors"
+          >
+            <option value="score_desc">Match % (High → Low)</option>
+            <option value="score_asc">Match % (Low → High)</option>
+            <option value="exp_desc">Experience (High → Low)</option>
+            <option value="exp_asc">Experience (Low → High)</option>
+            <option value="name_asc">Name (A → Z)</option>
+          </select>
+        </div>
+      )}
+    </div>
 
-                {submissionMode && (
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => setConfirmPopup(true)}
-                      disabled={selectedResumes.length === 0}
-                      className={`px-4 py-2 font-semibold rounded-full shadow-md transition-all text-sm ${selectedResumes.length > 0
-                        ? "bg-[#00B4C6] text-white hover:bg-[#009AAD] hover:scale-105"
-                        : "bg-gray-300 text-gray-500 cursor-not-allowed"
-                        }`}
+    {/* RIGHT SIDE: Buttons */}
+    <div className="flex gap-2">
+      {matchingResumes.length > 0 && !submissionMode && (
+        <button
+          onClick={() => setSubmissionMode(true)}
+          className="px-4 py-2 bg-gradient-to-r from-[#21B0BE] to-[#4DD0E1] text-white font-semibold rounded-full shadow-md hover:shadow-lg hover:scale-105 transition-all text-sm"
+        >
+          Select
+        </button>
+      )}
 
-                    >
-                      Submit ({selectedResumes.length})
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSubmissionMode(false);
-                        setSelectedResumes([]);
-                      }}
-                      className="px-4 py-2 bg-gray-500 text-white font-semibold rounded-full hover:bg-gray-600 transition-all text-sm"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
-              </div>
-
+      {submissionMode && (
+        <div className="flex gap-3">
+          <button
+            onClick={() => setConfirmPopup(true)}
+            disabled={selectedResumes.length === 0}
+            className={`px-4 py-2 font-semibold rounded-full shadow-md transition-all text-sm ${selectedResumes.length > 0
+              ? "bg-[#00B4C6] text-white hover:bg-[#009AAD] hover:scale-105"
+              : "bg-gray-300 text-gray-500 cursor-not-allowed"
+              }`}
+          >
+            Submit ({selectedResumes.length})
+          </button>
+          <button
+            onClick={() => {
+              setSubmissionMode(false);
+              setSelectedResumes([]);
+            }}
+            className="px-4 py-2 bg-gray-500 text-white font-semibold rounded-full hover:bg-gray-600 transition-all text-sm"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
+  </div>
+  {/* ✅ HEADER SECTION END */}
               <div className="flex-1 overflow-y-auto space-y-4">
                 {matchingResumes.length === 0 ? (
                   <p className="text-gray-400 italic text-center mt-20">
@@ -700,6 +776,11 @@ const JobDescriptionMatch = () => {
                     </div>
                   ))
                 )}
+                <div ref={lastElementRef} className="h-4 w-full flex justify-center p-2">
+       {matchingResumes.length < allMatches.length && (
+          <Loader className="animate-spin text-[#21B0BE]" size={20} />
+       )}
+    </div>
               </div>
             </div>
           </div>

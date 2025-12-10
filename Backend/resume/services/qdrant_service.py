@@ -588,3 +588,25 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
     if na == 0 or nb == 0:
         return 0.0
     return dot / (na * nb)
+
+
+# In Backend/resume/services/qdrant_service.py
+
+# In qdrant_service.py (Add to bottom)
+
+def get_points_paginated(collection_name: str = COLLECTION_NAME, offset=None, limit: int = 12):
+    initialize_qdrant_collection()
+    if not qdrant_client: return [], None
+
+    try:
+        records, next_offset = qdrant_client.scroll(
+            collection_name=collection_name,
+            with_payload=True,
+            with_vectors=False,
+            limit=limit,
+            offset=offset
+        )
+        return records, next_offset
+    except Exception as e:
+        print(f"❌ Pagination Scroll failed: {e}")
+        return [], None

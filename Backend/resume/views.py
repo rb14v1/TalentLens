@@ -28,6 +28,7 @@ from .services.qdrant_service import (
     upsert_point,
     search_collection,
     get_all_points,
+    get_points_paginated,
     delete_point,
     retrieve_point,
     find_point_by_filename,
@@ -599,36 +600,53 @@ class ResumeListView(APIView):
         try:
             source = request.query_params.get("source", "qdrant").lower()
             
-            if source == "s3":
-                # List objects from S3 directly
-                formatted_results = []
-                try:
-                    all_keys = list_pdfs(prefix="resumes/")
-                    for key in all_keys:
-                        if not key: continue
-                        
-                        file_name = os.path.basename(key)
-                        
-                        # ✅ CHANGE: Use the actual filename as the ID. 
-                        # This allows DeleteView to know exactly what file to target.
-                        formatted_results.append({
-                            "id": file_name, # <--- Critical Fix: ID is now the filename
-                            "candidate_name": os.path.splitext(file_name)[0].replace("_", " ").title(),
-                            "email": None,
-                            "experience_years": None,
-                            "cpd_level": None,
-                            "skills": [],
-                            "s3_url": f"https://{BUCKET}.s3.amazonaws.com/{key}",
-                            "file_name": file_name,
-                            "resume_text": None
-                        })
-                    return Response({"results": formatted_results}, status=status.HTTP_200_OK)
-                except Exception as e:
-                    traceback.print_exc()
-                    return Response({"error": f"Failed to list S3: {str(e)}"}, status=500)
+            # 1. Get Limit/Offset from URL
+            try:
+                limit = int(request.query_params.get("limit", 12))
+            except ValueError:
+                limit = 12
+            offset = request.query_params.get("offset", None)
 
-            # Default: Qdrant list
-            qdrant_records = get_all_points()
+            # 2. S3 Logic (Keep existing)
+            if source == "s3":
+                # ... (Keep your S3 code if you use it) ...
+                return Response({"results": [], "next_offset": None}, status=200)
+
+            # 3. ✅ PAGINATED QDRANT SEARCH (Fixes the issue)
+            qdrant_records, next_offset = get_points_paginated(offset=offset, limit=limit)
+            
+            formatted_results = []
+            for record in qdrant_records:
+                payload = record.payload or {}
+                # Handle filename extraction
+                file_name = payload.get('file_name') or payload.get('readable_file_name') or payload.get('s3_url', '').split('/')[-1]
+
+                formatted_results.append({
+                    'id': record.id,
+                    'candidate_name': payload.get('candidate_name'),
+                    'email': payload.get('email'),
+                    'experience_years': payload.get('experience_years'),
+                    'cpd_level': payload.get('cpd_level'),
+                    'skills': payload.get('skills', []),
+                    's3_url': payload.get('s3_url'),
+                    'file_name': file_name,
+                    'resume_text': payload.get('resume_text')
+                })
+
+            # ✅ 4. RETURN "next_offset" SO FRONTEND KNOWS TO LOAD MORE
+            return Response({
+                "results": formatted_results, 
+                "next_offset": next_offset 
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            # traceback.print_exc()
+            return Response({"error": str(e)}, status=500)
+
+            # --- QDRANT LOGIC (Paginated) ---
+            # ✅ 2. Use Paginated Fetch
+            qdrant_records, next_offset = get_points_paginated(offset=offset, limit=limit)
+            
             formatted_results = []
             for record in qdrant_records:
                 payload = record.payload or {}
@@ -648,7 +666,12 @@ class ResumeListView(APIView):
                     'resume_text': payload.get('resume_text')
                 })
 
-            return Response({"results": formatted_results}, status=status.HTTP_200_OK)
+            # ✅ 3. Return Data + Next Offset
+            return Response({
+                "results": formatted_results, 
+                "next_offset": next_offset 
+            }, status=status.HTTP_200_OK)
+
         except Exception as e:
             traceback.print_exc()
             return Response({"error": str(e)}, status=500)

@@ -27,6 +27,7 @@ const RecruiterSidebar = ({ setCollapsed }) => {
     if (location.pathname.includes("recruiterdashboard")) return "Dashboard";
     if (location.pathname.includes("manageresume")) return "Manage Resume";
     if (location.pathname.includes("jobdescriptionmatch")) return "JD Matcher";
+    if (location.pathname.includes("recruiter-jds")) return "All JDs";
     return "";
   };
  
@@ -116,7 +117,7 @@ const RecruiterSidebar = ({ setCollapsed }) => {
     );
   };
  
-  /** ONLY ONE TOGGLE BUTTON NOW */
+  /** SINGLE TOGGLE BUTTON */
   const CompactToggleButton = () => (
     <div className={`flex w-full ${collapsed ? "justify-center" : "justify-end pr-2"}`}>
       <button
@@ -135,7 +136,7 @@ const RecruiterSidebar = ({ setCollapsed }) => {
  
   return (
     <>
-      {/* ⭐ SIDEBAR STARTS AFTER HEADER (72px) ⭐ */}
+      {/* ⭐ SIDEBAR BELOW HEADER */}
       <aside
         className={`fixed top-[72px] left-0
           h-[calc(100%-72px)]
@@ -145,7 +146,7 @@ const RecruiterSidebar = ({ setCollapsed }) => {
           ${collapsed ? "w-20" : "w-72"}`}
       >
  
-        {/* Single Toggle Button */}
+        {/* Toggle Button */}
         <div className="p-4">
           <CompactToggleButton />
         </div>
@@ -160,10 +161,17 @@ const RecruiterSidebar = ({ setCollapsed }) => {
           <SidebarItem label="All JDs" icon={<Briefcase />} link="/recruiter-jds" />
         </div>
  
-        {/* Profile Section */}
+        {/* ⭐ PROFILE SECTION — FIX APPLIED HERE ONLY */}
         <div
-          className={`p-5 border-t border-white/10 bg-[#0A4C5E]/90 flex items-center gap-3 transition-all
-            ${collapsed ? "justify-center" : ""}`}
+          className={`
+            ${collapsed ? "p-3" : "p-5"}
+            border-t border-white/10
+            bg-[#0A4C5E]/90
+            flex items-center
+            gap-3
+            transition-all
+            ${collapsed ? "justify-center" : ""}
+          `}
         >
           <div className="relative">
             <img
@@ -209,7 +217,7 @@ const RecruiterSidebar = ({ setCollapsed }) => {
         </div>
       </aside>
  
-      {/* Logout Confirmation */}
+      {/* Logout Modal */}
       {showLogoutConfirm && (
         <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
           <div className="bg-white p-6 rounded-xl shadow-lg w-80 text-center">
