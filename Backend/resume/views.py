@@ -350,242 +350,194 @@ SYNONYM_MAP = {
 # ============================================================
 # Search Resume (Fixed: Aligned with Dashboard filters)
 # ============================================================
-# ============================================================
-
-# Resume Search + Filtering (ATS scoring + CPD + experience)
-
-# ============================================================
-
 class ResumeSearchView(APIView):
  
     def post(self, request, *args, **kwargs):
-
+        from qdrant_client.http import models
         query = request.data.get("query", "")
-
-        filters = request.data.get("filters", {}) or {}
+        filters = request.data.get("filters", {})
  
+        # ✅ UPDATED: Allow either query OR filters (or both)
+        if not query and not filters:
+            return Response({"error": "A search query or filters are required"}, status=400)
+       
+        print("\n" + "="*60)
+        print("🔍 RESUME SEARCH CALLED")
+        print(f"📥 Request data: {request.data}")
+        print(f"📥 Query: {query}")
+        print(f"📥 Filters: {filters}")
+        print("="*60)
+       
+        # ============================================================
+        # FILTER-ONLY SEARCH (when query is empty)
+        # ============================================================
         if not query:
-
-            return Response({"error": "Search query required"}, status=400)
- 
-        # Extract filters
-
-        filter_cpd = filters.get("cpd_level")
-
-        filter_exp = filters.get("experience_years")
-
-        filter_skills = filters.get("skills", [])
- 
+           
+           
+            must_conditions = []
+           
+            # CPD Level filter
+            cpd_level = filters.get("cpd_level")
+            if cpd_level:
+                try:
+                    val = int(cpd_level)
+                    must_conditions.append(
+                        models.FieldCondition(
+                            key="cpd_level",
+                            match=models.MatchValue(value=val)
+                        )
+                    )
+                    print(f"✅ CPD Level filter added: {val}")
+                except ValueError:
+                    print(f"⚠️ Invalid CPD level: {cpd_level}")
+                    pass
+           
+            # Department filter (optional)
+            department = filters.get("department")
+            if department:
+                must_conditions.append(
+                    models.FieldCondition(
+                        key="department",
+                        match=models.MatchValue(value=department)
+                    )
+                )
+                print(f"✅ Department filter added: {department}")
+           
+            # Build filter
+            query_filter = models.Filter(must=must_conditions) if must_conditions else None
+           
+            # Use zero vector for filter-only search
+            dummy_vector = [0.0] * 384
+           
+            try:
+                results = search_collection(dummy_vector, query_filter=query_filter, limit=100)
+                print(f"✅ Filter-only search returned {len(results)} results")
+            except Exception as e:
+                print(f"❌ Qdrant search error: {e}")
+                return Response({"error": f"Qdrant search error: {e}"}, status=500)
+           
+            # Build final_results for filter-only search
+            final_results = []
+            for match in results:
+                payload = match.payload or {}
+               
+                # Set a default score for filter results (since semantic similarity doesn't apply)
+                final_score = 75.0  # You can adjust this or calculate based on other criteria
+               
+                final_results.append({
+                    "id": match.id,
+                    "score": final_score,
+                    "matched_keywords": [],  # No keyword matching for filter-only
+                    "data": payload
+                })
+           
+            # Sort by CPD level or experience (optional)
+            final_results.sort(key=lambda x: (
+                x["data"].get("cpd_level", 0),
+                x["data"].get("experience_years", 0)
+            ), reverse=True)
+           
+            print(f"📤 Returning {len(final_results)} filtered results")
+            print("="*60 + "\n")
+            return Response({"results": final_results}, status=200)
+       
+        # ============================================================
+        # TEXT-BASED SEARCH (with optional filters)
+        # ============================================================
+       
         # ------------------------------------------------------------
-
-        # 1) Extract raw keywords + dependency-expanded search set
-
+        # 1) Extract keywords + Dependency Expansion (VERY IMPORTANT)
         # ------------------------------------------------------------
-
         raw_keywords = KeywordMatchService.extract_keywords(query)
-
         expanded_keywords = KeywordMatchService.expand_dependencies(raw_keywords)
- 
-        print("\n🔍 Expanded search keywords:", expanded_keywords)
+        print("\n🔍 Search expanded keywords =", expanded_keywords)
  
         # ------------------------------------------------------------
-
-        # 2) SEMANTIC EMBEDDING
-
+        # 2) Get embedding for semantic search
         # ------------------------------------------------------------
-
         try:
-
             query_embedding = get_text_embedding(query)
-
         except Exception as e:
-
             return Response({"error": f"Embedding failed: {e}"}, status=500)
  
         # ------------------------------------------------------------
-
-        # 3) QDRANT SEARCH
-
+        # 3) Build filters for text search (if provided)
         # ------------------------------------------------------------
-
+        must_conditions = []
+       
+        cpd_level = filters.get("cpd_level")
+        if cpd_level:
+            try:
+                val = int(cpd_level)
+                must_conditions.append(
+                    models.FieldCondition(
+                        key="cpd_level",
+                        match=models.MatchValue(value=val)
+                    )
+                )
+            except ValueError:
+                pass
+       
+        department = filters.get("department")
+        if department:
+            must_conditions.append(
+                models.FieldCondition(
+                    key="department",
+                    match=models.MatchValue(value=department)
+                )
+            )
+       
+        query_filter = models.Filter(must=must_conditions) if must_conditions else None
+       
+        # ------------------------------------------------------------
+        # 4) Search Qdrant by similarity + filters
+        # ------------------------------------------------------------
         try:
-
-            results = search_collection(query_embedding, limit=200)
-
+            results = search_collection(query_embedding, query_filter=query_filter, limit=300)
+            print(f"✅ Semantic search returned {len(results)} results")
         except Exception as e:
-
             return Response({"error": f"Qdrant search error: {e}"}, status=500)
  
         final_results = []
  
         # ------------------------------------------------------------
-
-        # 4) ATS MATCHING + FILTERS
-
+        # 5) Loop resumes and do keyword scoring
         # ------------------------------------------------------------
-
-        import math
- 
         for match in results:
-
             payload = match.payload or {}
  
-            # ==============================================
-
-            # ✔ FILTER 1: CPD LEVEL
-
-            # ==============================================
-
-            if filter_cpd:
-
-                resume_cpd = payload.get("cpd_level")
-
-                if not resume_cpd or str(resume_cpd) != str(filter_cpd):
-
-                    continue  # skip this candidate
- 
-            # ==============================================
-
-            # ✔ FILTER 2: EXPERIENCE
-
-            # ==============================================
-
-            if filter_exp:
-
-                try:
-
-                    exp_years = int(payload.get("experience_years", 0))
-
-                except:
-
-                    exp_years = 0
- 
-                if exp_years < int(filter_exp):
-
-                    continue
- 
-            # ==============================================
-
-            # ✔ FILTER 3: REQUIRED SKILLS
-
-            # ==============================================
-
-            if filter_skills:
-
-                resume_skills = payload.get("skills", [])
-
-                if isinstance(resume_skills, str):
-
-                    resume_skills = [resume_skills]
- 
-                # Ensure all required skills appear
-
-                missing = [
-
-                    skill for skill in filter_skills
-
-                    if skill.lower() not in [s.lower() for s in resume_skills]
-
-                ]
- 
-                if missing:
-
-                    continue
- 
-            # ============================================================
-
-            # ATS SCORING SYSTEM (Keyword Ratio + Semantic + Experience)
-
-            # ============================================================
-
             resume_skills = payload.get("skills", [])
-
             if isinstance(resume_skills, str):
-
                 resume_skills = [resume_skills]
  
+            # ---- SMART KEYWORD MATCH PIPELINE ----
             matched_keywords = KeywordMatchService.get_matched_keywords(
-
                 resume_skills, query
-
             )
  
-            matched_count = len(matched_keywords)
-
-            total_required = len(expanded_keywords) if expanded_keywords else 1
-
-            keyword_ratio = matched_count / total_required
+            # ---- Boost score using matched keyword count ----
+            base_score = match.score
+            boost = len(matched_keywords) * 0.08  # keyword influence
+            final_score = (base_score + boost) * 100
+            final_score = min(final_score, 100.0)  # Cap at 100%
+            final_score = round(final_score, 2)
  
-            # ---- SEMANTIC normalization ----
-
-            sem_raw = float(match.score or 0.0)
-
-            if not math.isfinite(sem_raw) or sem_raw < 0:
-
-                sem_raw = 0.0
-
-            semantic_norm = max(min(sem_raw, 1.0), 0.0)
- 
-            # ---- EXPERIENCE normalization ----
-
-            try:
-
-                exp_raw = float(payload.get("experience_years") or 0)
-
-            except:
-
-                exp_raw = 0
-
-            experience_norm = min(exp_raw / 10.0, 1.0)
- 
-            # ---- ATS WEIGHTS ----
-
-            W_KEYWORD = 0.60
-
-            W_SEMANTIC = 0.35
-
-            W_EXPERIENCE = 0.05
- 
-            combined = (
-
-                W_KEYWORD * keyword_ratio +
-
-                W_SEMANTIC * semantic_norm +
-
-                W_EXPERIENCE * experience_norm
-
-            )
- 
-            final_pct = round(max(min(combined, 1.0), 0.0) * 100, 2)
- 
-            # Build response entry
-
+            # Build result object
             final_results.append({
-
                 "id": match.id,
-
-                "score": final_pct,
-
-                "semantic_raw": round(semantic_norm, 4),
-
-                "keyword_ratio": round(keyword_ratio, 4),
-
+                "score": final_score,
                 "matched_keywords": matched_keywords,
-
-                "matched_count": matched_count,
-
-                "total_required": total_required,
-
                 "data": payload
-
             })
- 
-        # SORT by score descending
-
+           
+        # Sort by boosted score
         final_results.sort(key=lambda x: x["score"], reverse=True)
- 
+       
+        print(f"📤 Returning {len(final_results)} search results")
+        print("="*60 + "\n")
         return Response({"results": final_results}, status=200)
-
+ 
+ 
  
  
 

@@ -71,14 +71,19 @@ const RecruiterSidebar = ({ setCollapsed }) => {
       stored.profile_image = base64;
       localStorage.setItem("user", JSON.stringify(stored));
  
-      await fetch(`${API_BASE_URL}/upload-profile-image/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: stored.email,
-          image: base64,
-        }),
-      });
+      try {
+        await fetch(`${API_BASE_URL}/upload-profile-image/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: stored.email,
+            image: base64,
+          }),
+        });
+      } catch (err) {
+        // ignore network error for now
+        console.error("Profile image upload failed", err);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -95,24 +100,27 @@ const RecruiterSidebar = ({ setCollapsed }) => {
           navigate(link);
         }}
         title={collapsed ? label : ""}
-        className={`flex items-center gap-4 px-4 py-3 w-full text-lg font-medium rounded-xl transition-all
+        className={`flex items-center gap-2 px-3 py-2 w-full text-lg font-medium rounded-xl transition-all
           ${isActive ? "text-[#FFFFFF]" : "text-white"}
           ${collapsed ? "justify-center" : ""}`}
       >
         <div
           className={`relative flex items-center justify-center transition-all
-            ${collapsed ? "p-2" : ""}
+            ${collapsed ? "p-1.5" : "p-1"}
             ${isActive ? "bg-white/20 rounded-xl" : "hover:bg-white/15 rounded-xl"}`}
-          style={{ width: collapsed ? 44 : 32, height: collapsed ? 44 : 32 }}
+          style={{
+            width: collapsed ? 40 : 36,
+            height: collapsed ? 40 : 36,
+          }}
         >
           <div
             className={`absolute left-0 w-[4px] h-full rounded-r-lg transition-all
               ${isActive ? "bg-white" : "bg-transparent"}`}
           />
-          {React.cloneElement(icon, { size: 22, color: "#ffffff" })}
+          {React.cloneElement(icon, { size: 20, color: "#ffffff" })}
         </div>
  
-        {!collapsed && label}
+        {!collapsed && <span className="whitespace-nowrap">{label}</span>}
       </button>
     );
   };
@@ -145,14 +153,14 @@ const RecruiterSidebar = ({ setCollapsed }) => {
           text-white shadow-xl transition-all duration-300
           ${collapsed ? "w-20" : "w-72"}`}
       >
- 
         {/* Toggle Button */}
-        <div className="p-4">
+        <div className="p-3">
           <CompactToggleButton />
         </div>
  
         {/* Navigation */}
-        <div className="px-5 flex-1 space-y-3">
+        {/* Reduced vertical gap (space-y-2) and reduced paddings in SidebarItem */}
+        <div className="px-3 flex-1 space-y-2">
           <SidebarItem label="Upload" icon={<Upload />} link="/upload" />
           <SidebarItem label="Retrieve" icon={<Search />} link="/retrieve" />
           <SidebarItem label="Dashboard" icon={<LayoutDashboard />} link="/recruiterdashboard" />
@@ -163,15 +171,11 @@ const RecruiterSidebar = ({ setCollapsed }) => {
  
         {/* ⭐ PROFILE SECTION — FIX APPLIED HERE ONLY */}
         <div
-          className={`
-            ${collapsed ? "p-3" : "p-5"}
-            border-t border-white/10
-            bg-[#0A4C5E]/90
-            flex items-center
-            gap-3
-            transition-all
-            ${collapsed ? "justify-center" : ""}
-          `}
+          className={`${
+            collapsed ? "p-3" : "p-5"
+          } border-t border-white/10 bg-[#0A4C5E]/90 flex items-center gap-3 transition-all ${
+            collapsed ? "justify-center" : ""
+          }`}
         >
           <div className="relative">
             <img
@@ -233,7 +237,7 @@ const RecruiterSidebar = ({ setCollapsed }) => {
               </button>
  
               <button
-                className="w-1/2 bg-red-600 text-white py-2 rounded-lg"
+                className="w-1/2 bg-teal-600 text-white py-2 rounded-lg"
                 onClick={() => {
                   localStorage.clear();
                   navigate("/login");

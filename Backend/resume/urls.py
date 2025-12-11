@@ -34,7 +34,7 @@ urlpatterns = [
     # ========== JOB DESCRIPTION ==========
     path('jd-match/', views.jd_match, name='jd-match'),
     path('extract_jd/', extract_jd, name='extract_jd'),  # Extract JD keywords
-    path('jd_match/', jd_match, name='jd_match'),  # Match resumes to JD
+    # path('jd_match/', jd_match, name='jd_match'),  # Match resumes to JD
     # Optional: Add these if using JobDescription model
     # path('jd/', views.job_description_list, name='job_description_list'),
     # path('jd/<int:jd_id>/', views.job_description_detail, name='job_description_detail'),

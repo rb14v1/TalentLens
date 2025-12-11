@@ -116,7 +116,7 @@ const PublishedJDs = () => {
         const jobName = job.creator_name || job.hiringManagerName;
         const isNameMatch = safeMatch(jobName, userName);
 
-        if (isEmailMatch || isNameMatch) {
+        if (isEmailMatch && isNameMatch) {
           mine.push(job);
         } else {
           others.push(job);
@@ -127,6 +127,8 @@ const PublishedJDs = () => {
       if (isInitial) {
         setMyJobs(mine);
         setDeptJobs(others);
+
+        
       } else {
         setMyJobs(prev => [...prev, ...mine]);
         setDeptJobs(prev => [...prev, ...others]);
