@@ -1,5 +1,3 @@
-// src/pages/PublishedJDs.jsx
-
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -28,10 +26,14 @@ const PublishedJDs = () => {
   const [deptJobs, setDeptJobs] = useState([]);
   const [userData, setUserData] = useState(null); // Store user info for filtering subsequent pages
 
+  // ✅ NEW: Total Count States (for badges)
+  const [totalMyJobsCount, setTotalMyJobsCount] = useState(0);
+  const [totalDeptJobsCount, setTotalDeptJobsCount] = useState(0);
+
   // Loading & Pagination States
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
+
   // ✅ Pagination Refs & State
   const nextOffsetRef = useRef(0);
   const [hasMore, setHasMore] = useState(true);
@@ -67,6 +69,55 @@ const PublishedJDs = () => {
     fetchUser();
   }, []);
 
+  // ✅ NEW: Fetch Total Counts (runs once when userData is ready)
+  useEffect(() => {
+    const fetchAllJobsForCounting = async () => {
+      if (!userData) return;
+
+      try {
+        // Fetch ALL jobs without pagination to get accurate counts
+        const res = await fetch(`${API_BASE_URL}/jobs/list/?limit=1000`, { 
+          credentials: "include" 
+        });
+
+        if (!res.ok) throw new Error("Could not fetch job counts");
+        const data = await res.json();
+
+        const allJobs = data.results || [];
+        const userEmail = userData.email || "";
+        const userName = userData.name || "";
+
+        let myCount = 0;
+        let deptCount = 0;
+
+        allJobs.forEach((job) => {
+          if (!job) return;
+
+          const jobEmail = job.email || job.creator_email;
+          const isEmailMatch = safeMatch(jobEmail, userEmail);
+          const jobName = job.creator_name || job.hiringManagerName;
+          const isNameMatch = safeMatch(jobName, userName);
+
+          if (isEmailMatch && isNameMatch) {
+            myCount++;
+          } else {
+            deptCount++;
+          }
+        });
+
+        setTotalMyJobsCount(myCount);
+        setTotalDeptJobsCount(deptCount);
+
+      } catch (err) {
+        console.error("Error fetching counts:", err);
+      }
+    };
+
+    if (userData) {
+      fetchAllJobsForCounting();
+    }
+  }, [userData]);
+
   // 2. Fetch Jobs (Paginated) - Runs when userData is ready or on scroll
   const fetchJobs = useCallback(async (isInitial = false) => {
     if (!userData) return; // Don't fetch jobs until we know who the user is
@@ -91,7 +142,7 @@ const PublishedJDs = () => {
       const res = await fetch(`${API_BASE_URL}/jobs/list/?limit=${limit}&offset=${offset}`, { 
           credentials: "include" 
       });
-      
+
       if (!res.ok) throw new Error("Could not fetch jobs list");
       const data = await res.json();
 
@@ -104,7 +155,7 @@ const PublishedJDs = () => {
       // Filter Logic using stored userData
       const userEmail = userData.email || "";
       const userName = userData.name || "";
-      
+
       const mine = [];
       const others = [];
 
@@ -127,8 +178,6 @@ const PublishedJDs = () => {
       if (isInitial) {
         setMyJobs(mine);
         setDeptJobs(others);
-
-        
       } else {
         setMyJobs(prev => [...prev, ...mine]);
         setDeptJobs(prev => [...prev, ...others]);
@@ -191,6 +240,11 @@ const PublishedJDs = () => {
 
       setMyJobs((prev) => prev.filter((j) => j.id !== id));
       setDeptJobs((prev) => prev.filter((j) => j.id !== id));
+
+      // ✅ Update counts after delete
+      setTotalMyJobsCount(prev => Math.max(0, prev - 1));
+      setTotalDeptJobsCount(prev => Math.max(0, prev - 1));
+
       setDeleteModal({ show: false, id: null });
     } catch (e) {
       alert("Failed to delete job.");
@@ -363,7 +417,7 @@ const PublishedJDs = () => {
                   <h2 className="text-xl font-bold text-[#0F394D] mb-4 border-b-2 border-[#21B0BE] pb-2 flex justify-between">
                     My Job Postings{" "}
                     <span className="bg-[#21B0BE]/10 text-[#0F394D] text-xs px-2 py-1 rounded-full">
-                      {myJobs.length}
+                      {totalMyJobsCount}
                     </span>
                   </h2>
 
@@ -383,7 +437,7 @@ const PublishedJDs = () => {
                   <h2 className="text-xl font-bold text-[#0F394D] mb-4 border-b-2 border-gray-300 pb-2 flex justify-between">
                     Department Postings{" "}
                     <span className="bg-gray-200 text-gray-600 text-xs px-2 py-1 rounded-full">
-                      {deptJobs.length}
+                      {totalDeptJobsCount}
                     </span>
                   </h2>
 
