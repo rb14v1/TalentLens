@@ -21,7 +21,7 @@ import hashlib
 
 # services 
 from .services.s3_service import upload_resume_to_s3, list_pdfs, get_pdf_bytes, get_presigned_url, s3, BUCKET
-from .services.extract_data import extract_fields
+from .services.extract_data import extract_fields, extract_cpd_level, extract_experience_years
 from .services.embedding_service import get_text_embedding
 from .services.qdrant_service import (
     qdrant_client,
@@ -101,6 +101,107 @@ def _filename_to_point_id(fn: str) -> str:
         return str(uuid.uuid5(uuid.NAMESPACE_DNS, normalized))
     except Exception:
         return str(uuid.uuid4())
+
+
+def _extract_text_keyword_hits(search_text: str, payload: dict) -> list:
+    """
+    Find literal keyword hits inside stored resume text/skills so keyword search
+    can act as a real filter instead of returning loosely related semantic matches.
+    """
+    query_keywords = KeywordMatchService.extract_keywords(search_text)
+    if not query_keywords:
+        return []
+
+    skills = payload.get("skills", [])
+    if isinstance(skills, str):
+        skills = [skills]
+
+    haystacks = [
+        " ".join(str(skill) for skill in skills),
+        str(payload.get("resume_text", "") or ""),
+        str(payload.get("candidate_name", "") or ""),
+        str(payload.get("email", "") or ""),
+    ]
+    combined_text = "\n".join(haystacks).lower()
+
+    hits = []
+    for keyword in query_keywords:
+        pattern = r"\b" + re.escape(keyword.lower()) + r"\b"
+        if re.search(pattern, combined_text):
+            hits.append(keyword.lower())
+
+    return sorted(set(hits))
+
+
+def job_exists(job_id: str) -> bool:
+    """
+    Check whether a JD still exists in any known Qdrant job collection.
+    """
+    if not job_id or not qdrant_client:
+        return False
+
+    for collection_name in ("engineering_it", "human_resources", "sales_marketing", "finance_accounting"):
+        try:
+            points = qdrant_client.retrieve(
+                collection_name=collection_name,
+                ids=[job_id],
+                with_payload=False,
+                with_vectors=False,
+            )
+            if points:
+                return True
+        except Exception:
+            continue
+
+    return False
+
+
+def _normalize_resume_payload(payload: dict) -> dict:
+    """
+    Normalize resume payloads at read time so older records benefit from the
+    improved CPD/experience extraction without needing a re-upload first.
+    """
+    payload = dict(payload or {})
+    resume_text = str(payload.get("resume_text", "") or "")
+
+    explicit_cpd = extract_cpd_level(resume_text)
+    if explicit_cpd is not None:
+        payload["cpd_level"] = explicit_cpd
+    elif payload.get("cpd_level") is not None:
+        try:
+            payload["cpd_level"] = int(payload.get("cpd_level"))
+        except (TypeError, ValueError):
+            payload["cpd_level"] = None
+
+    raw_experience = payload.get("experience_years")
+    try:
+        normalized_experience = int(float(raw_experience))
+    except (TypeError, ValueError):
+        normalized_experience = 0
+
+    if resume_text:
+        extracted_experience = extract_experience_years(resume_text)
+        if extracted_experience:
+            normalized_experience = extracted_experience
+
+    payload["experience_years"] = normalized_experience
+    return payload
+
+
+def _resume_matches_structured_filters(payload: dict, filters: dict) -> bool:
+    cpd_level = (filters or {}).get("cpd_level")
+    if cpd_level:
+        try:
+            if int(payload.get("cpd_level") or 0) != int(cpd_level):
+                return False
+        except (TypeError, ValueError):
+            return False
+
+    department = (filters or {}).get("department")
+    if department and str(payload.get("department") or "") != str(department):
+        return False
+
+    return True
 
 # -----------------------------
 # Home
@@ -216,6 +317,17 @@ class ResumeUploadView(APIView):
                 # hash
                 file_hash = hashlib.sha256(file_bytes).hexdigest()
 
+                try:
+                    existing_hashes = find_points_by_hashes([file_hash])
+                except Exception as e:
+                    print(f"⚠️ hash duplicate check failed for {readable_file_name}: {e}")
+                    existing_hashes = set()
+
+                if file_hash in existing_hashes:
+                    skipped_duplicates.append(readable_file_name)
+                    print(f"⚠️ Duplicate hash detected: {readable_file_name}")
+                    continue
+
                 s3_buffer = io.BytesIO(file_bytes)
                 s3_buffer.name = resume_file.name
                 extract_buffer = io.BytesIO(file_bytes)
@@ -267,6 +379,11 @@ class ResumeUploadView(APIView):
                     continue
 
                 extracted_skills = extracted_data.get("skills", []) or []
+                cpd_level = extracted_data.get("cpd_level")
+                try:
+                    cpd_level = int(cpd_level) if cpd_level is not None else None
+                except (TypeError, ValueError):
+                    cpd_level = None
 
                 # ✅ payload now also carries salary + currency + candidate_type
                 payload = {
@@ -276,8 +393,8 @@ class ResumeUploadView(APIView):
                     "file_hash": file_hash,
                     "file_name": stored_file_name,
                     "readable_file_name": readable_file_name,
-                    "experience_years": extracted_data.get("experience_years"),
-                    "cpd_level": extracted_data.get("cpd_level"),
+                    "experience_years": extracted_data.get("experience_years") or 0,
+                    "cpd_level": cpd_level,
                     "skills": extracted_skills,
                     "resume_text": resume_text,
                     "salary": float(salary) if salary else None,
@@ -372,62 +489,23 @@ class ResumeSearchView(APIView):
         # FILTER-ONLY SEARCH (when query is empty)
         # ============================================================
         if not query:
-           
-           
-            must_conditions = []
-           
-            # CPD Level filter
-            cpd_level = filters.get("cpd_level")
-            if cpd_level:
-                try:
-                    val = int(cpd_level)
-                    must_conditions.append(
-                        models.FieldCondition(
-                            key="cpd_level",
-                            match=models.MatchValue(value=val)
-                        )
-                    )
-                    print(f"✅ CPD Level filter added: {val}")
-                except ValueError:
-                    print(f"⚠️ Invalid CPD level: {cpd_level}")
-                    pass
-           
-            # Department filter (optional)
-            department = filters.get("department")
-            if department:
-                must_conditions.append(
-                    models.FieldCondition(
-                        key="department",
-                        match=models.MatchValue(value=department)
-                    )
-                )
-                print(f"✅ Department filter added: {department}")
-           
-            # Build filter
-            query_filter = models.Filter(must=must_conditions) if must_conditions else None
-           
-            # Use zero vector for filter-only search
-            dummy_vector = [0.0] * 384
-           
             try:
-                results = search_collection(dummy_vector, query_filter=query_filter, limit=100)
-                print(f"✅ Filter-only search returned {len(results)} results")
+                results = get_all_points()
+                print(f"✅ Filter-only search loaded {len(results)} resumes for normalization-aware filtering")
             except Exception as e:
-                print(f"❌ Qdrant search error: {e}")
-                return Response({"error": f"Qdrant search error: {e}"}, status=500)
-           
-            # Build final_results for filter-only search
+                print(f"❌ Resume fetch error: {e}")
+                return Response({"error": f"Resume fetch error: {e}"}, status=500)
+
             final_results = []
             for match in results:
-                payload = match.payload or {}
-               
-                # Set a default score for filter results (since semantic similarity doesn't apply)
-                final_score = 75.0  # You can adjust this or calculate based on other criteria
-               
+                payload = _normalize_resume_payload(match.payload or {})
+                if not _resume_matches_structured_filters(payload, filters):
+                    continue
+
                 final_results.append({
                     "id": match.id,
-                    "score": final_score,
-                    "matched_keywords": [],  # No keyword matching for filter-only
+                    "score": 75.0,
+                    "matched_keywords": [],
                     "data": payload
                 })
            
@@ -464,20 +542,7 @@ class ResumeSearchView(APIView):
         # 3) Build filters for text search (if provided)
         # ------------------------------------------------------------
         must_conditions = []
-       
-        cpd_level = filters.get("cpd_level")
-        if cpd_level:
-            try:
-                val = int(cpd_level)
-                must_conditions.append(
-                    models.FieldCondition(
-                        key="cpd_level",
-                        match=models.MatchValue(value=val)
-                    )
-                )
-            except ValueError:
-                pass
-       
+
         department = filters.get("department")
         if department:
             must_conditions.append(
@@ -504,20 +569,26 @@ class ResumeSearchView(APIView):
         # 5) Loop resumes and do keyword scoring
         # ------------------------------------------------------------
         for match in results:
-            payload = match.payload or {}
+            payload = _normalize_resume_payload(match.payload or {})
+
+            if not _resume_matches_structured_filters(payload, filters):
+                continue
  
             resume_skills = payload.get("skills", [])
             if isinstance(resume_skills, str):
                 resume_skills = [resume_skills]
  
             # ---- SMART KEYWORD MATCH PIPELINE ----
-            matched_keywords = KeywordMatchService.get_matched_keywords(
-                resume_skills, query
-            )
- 
+            matched_keywords = KeywordMatchService.get_matched_keywords(resume_skills, query)
+            literal_keyword_hits = _extract_text_keyword_hits(query, payload)
+            combined_keyword_hits = sorted(set(matched_keywords + literal_keyword_hits))
+
+            if raw_keywords and not combined_keyword_hits:
+                continue
+
             # ---- Boost score using matched keyword count ----
-            base_score = match.score
-            boost = len(matched_keywords) * 0.08  # keyword influence
+            base_score = match.score or 0
+            boost = len(combined_keyword_hits) * 0.08  # keyword influence
             final_score = (base_score + boost) * 100
             final_score = min(final_score, 100.0)  # Cap at 100%
             final_score = round(final_score, 2)
@@ -526,7 +597,7 @@ class ResumeSearchView(APIView):
             final_results.append({
                 "id": match.id,
                 "score": final_score,
-                "matched_keywords": matched_keywords,
+                "matched_keywords": combined_keyword_hits,
                 "data": payload
             })
            
@@ -569,7 +640,7 @@ class ResumeListView(APIView):
             
             formatted_results = []
             for record in qdrant_records:
-                payload = record.payload or {}
+                payload = _normalize_resume_payload(record.payload or {})
                 # Handle filename extraction
                 file_name = payload.get('file_name') or payload.get('readable_file_name') or payload.get('s3_url', '').split('/')[-1]
 
@@ -601,7 +672,7 @@ class ResumeListView(APIView):
             
             formatted_results = []
             for record in qdrant_records:
-                payload = record.payload or {}
+                payload = _normalize_resume_payload(record.payload or {})
                 
                 # Robust filename extraction
                 file_name = payload.get('file_name') or payload.get('readable_file_name') or payload.get('s3_url', '').split('/')[-1]
@@ -731,49 +802,35 @@ def filter_resumes(request):
 
         print(f"Filters: CPD={cpd_level}, Skill={skill}, Exp={experience_bucket}")
 
-        must_conditions = []
-
-        # 1. CPD Filter
-        if cpd_level:
-            try:
-                val = int(cpd_level)
-                must_conditions.append(models.FieldCondition(
-                    key="cpd_level", match=models.MatchValue(value=val)
-                ))
-            except: pass
-
-        # 2. Experience Filter
-        if experience_bucket:
-            # Logic must match 'analytics_overview' exactly
-            if experience_bucket in ["0-2", "0-2 yrs"]:
-                must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=0, lte=2)))
-            elif experience_bucket in ["3-5", "3-5 yrs"]:
-                must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=3, lte=5)))
-            elif experience_bucket in ["6-10", "6-10 yrs"]:
-                must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=6, lte=10)))
-            elif experience_bucket in ["10+", "10+ yrs"]:
-                # Matches >10 (so 11 and up)
-                must_conditions.append(models.FieldCondition(key="experience_years", range=models.Range(gte=11)))
-
-        # 3. Skill Filter
-        if skill:
-            # Search the 'skills' list in Qdrant
-            must_conditions.append(models.FieldCondition(
-                key="skills", match=models.MatchAny(any=[skill.lower()])
-            ))
-
-        # Execute Search
-        query_filter = models.Filter(must=must_conditions) if must_conditions else None
-        
-        # We use a zero vector because we only care about the filter, not semantic similarity
-        dummy_vector = [0.0] * 384 
-        
-        # Search limit 100 to show plenty of results
-        results = search_collection(dummy_vector, query_filter=query_filter, limit=100)
+        results = get_all_points()
 
         formatted_results = []
         for match in results:
-            p = match.payload or {}
+            p = _normalize_resume_payload(match.payload or {})
+
+            if cpd_level:
+                try:
+                    if int(p.get("cpd_level") or 0) != int(cpd_level):
+                        continue
+                except (TypeError, ValueError):
+                    continue
+
+            if experience_bucket:
+                exp = int(p.get("experience_years") or 0)
+                if experience_bucket in ["0-2", "0-2 yrs"] and not (0 <= exp <= 2):
+                    continue
+                if experience_bucket in ["3-5", "3-5 yrs"] and not (3 <= exp <= 5):
+                    continue
+                if experience_bucket in ["6-10", "6-10 yrs"] and not (6 <= exp <= 10):
+                    continue
+                if experience_bucket in ["10+", "10+ yrs"] and exp < 11:
+                    continue
+
+            if skill:
+                skills = p.get("skills", [])
+                normalized_skills = {str(item).lower() for item in skills}
+                if skill.lower() not in normalized_skills:
+                    continue
             
             # Extract filename securely
             file_name = p.get('file_name') or p.get('readable_file_name') or p.get('s3_url', '').split('/')[-1]
@@ -1068,11 +1125,13 @@ def analytics_overview(request):
             "10+ yrs": 0
         }
         skill_counts = {}
+        total_experience = 0
+        experience_count = 0
 
         print(f"📊 ANALYTICS: Processing {len(records)} records...")
 
         for rec in records:
-            p = rec.payload or {}
+            p = _normalize_resume_payload(rec.payload or {})
 
             # CPD
             cpd = p.get("cpd_level")
@@ -1095,6 +1154,8 @@ def analytics_overview(request):
                     else: bucket = "10+ yrs"
                     
                     experience[bucket] += 1
+                    total_experience += exp
+                    experience_count += 1
                     print(f"  - Found {exp} years -> {bucket}") # Debug print
                 except (ValueError, TypeError):
                     print(f"  - ⚠️ Invalid experience value: {raw_exp}")
@@ -1109,7 +1170,19 @@ def analytics_overview(request):
 
         print(f"✅ Experience Data: {experience}")
 
+        total_resumes = len(records)
+        average_experience = round(total_experience / experience_count, 1) if experience_count else 0
+        top_cpd_level = None
+        if total_resumes > 0:
+            top_cpd_level = max(
+                cpd_levels.items(),
+                key=lambda item: (item[1], int(item[0])),
+            )[0]
+
         return Response({
+            "total_resumes": total_resumes,
+            "average_experience": average_experience,
+            "top_cpd_level": top_cpd_level,
             "cpd_levels": cpd_levels,
             "experience": experience,
             "skills": dict(sorted(skill_counts.items(), key=lambda x: x[1], reverse=True)[:20])
@@ -1340,7 +1413,7 @@ def jd_match(request):
         
         for idx, resume in enumerate(all_resumes, 1):
             try:
-                payload = resume.payload or {}
+                payload = _normalize_resume_payload(resume.payload or {})
                 resume_skills = payload.get('skills', [])
                 if isinstance(resume_skills, str):
                     resume_skills = [resume_skills]
@@ -1424,6 +1497,14 @@ def jd_match(request):
                     'candidate_type': payload.get('candidate_type'),
                 }
                 
+                if jd_keywords:
+                    has_any_match_signal = (
+                        candidate_data["match_count"] > 0
+                        or candidate_data["experience_match_score"] > 0
+                    )
+                    if not has_any_match_signal:
+                        continue
+
                 matches.append(candidate_data)
 
 
@@ -1729,7 +1810,6 @@ def get_confirmed_matches(request):
         user = AppUser.objects.get(id=user_id)
         print(f"🔍 Fetching matches for user: {user.email} ({user.department})")
  
-        # ✅ TEMP: show ALL matches, do not filter by department
         matches = (
             ConfirmedMatch.objects
             .all()
@@ -1740,6 +1820,9 @@ def get_confirmed_matches(request):
         # Group by JD
         jd_groups = {}
         for match in matches:
+            if not job_exists(match.jd_id):
+                continue
+
             jd_id = match.jd_id
  
             if jd_id not in jd_groups:

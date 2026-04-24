@@ -150,6 +150,7 @@ const Preview = ({ jdData: jdDataFromProp, setJdData: setJdDataFromProp }) => {
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "include",
         body: JSON.stringify(jdData),
       });
       if (!response.ok) {

@@ -231,6 +231,9 @@ const PublishedJDs = () => {
     const id = deleteModal.id;
     if (!id) return;
     try {
+      const wasMine = myJobs.some((job) => job.id === id);
+      const wasDept = deptJobs.some((job) => job.id === id);
+
       const res = await fetch(`${API_BASE_URL}/jobs/delete/${id}/`, {
         method: "DELETE",
         credentials: "include",
@@ -241,9 +244,12 @@ const PublishedJDs = () => {
       setMyJobs((prev) => prev.filter((j) => j.id !== id));
       setDeptJobs((prev) => prev.filter((j) => j.id !== id));
 
-      // ✅ Update counts after delete
-      setTotalMyJobsCount(prev => Math.max(0, prev - 1));
-      setTotalDeptJobsCount(prev => Math.max(0, prev - 1));
+      if (wasMine) {
+        setTotalMyJobsCount((prev) => Math.max(0, prev - 1));
+      }
+      if (wasDept) {
+        setTotalDeptJobsCount((prev) => Math.max(0, prev - 1));
+      }
 
       setDeleteModal({ show: false, id: null });
     } catch (e) {

@@ -34,6 +34,22 @@ DEPARTMENT_MAPPING = {
     "Sales & Marketing": "sales_marketing",
     "Finance & Accounting": "finance_accounting",
 }
+
+DEPARTMENT_LABELS = {value: key for key, value in DEPARTMENT_MAPPING.items()}
+
+
+def _resolve_collection_key(department_value):
+    if not department_value:
+        return None
+    return DEPARTMENT_MAPPING.get(department_value, department_value if department_value in DEPARTMENT_LABELS else None)
+
+
+def _resolve_department_label(department_value, fallback_collection=None):
+    if not department_value and fallback_collection:
+        return DEPARTMENT_LABELS.get(fallback_collection, fallback_collection)
+    if department_value in DEPARTMENT_LABELS:
+        return DEPARTMENT_LABELS[department_value]
+    return department_value
  
 # ==========================================
 # Helper: Generate Formal PDF in Memory
@@ -162,10 +178,17 @@ def save_job_description(request):
     print("=== SAVE JD (S3 + QDRANT) CALLED ===")
     try:
         data = request.data
+        user = None
+        user_id = request.session.get("user_id")
+        if user_id:
+            try:
+                user = AppUser.objects.get(id=user_id)
+            except AppUser.DoesNotExist:
+                user = None
        
         # 1. Identify Collection
-        dept_selected = data.get("department", "")
-        collection_key = DEPARTMENT_MAPPING.get(dept_selected)
+        dept_selected = data.get("department") or (user.department if user else "")
+        collection_key = _resolve_collection_key(dept_selected)
        
         if not collection_key:
             print(f"⚠️ Unknown department: {dept_selected}")
@@ -223,7 +246,17 @@ def save_job_description(request):
  
         # 5. Save to Qdrant
         # Add the S3 URL to the data payload so we can retrieve it later
-        final_payload = {**data, "s3_url": s3_url, "file_name": filename}
+        final_payload = {
+            **data,
+            "department": _resolve_department_label(dept_selected, collection_key),
+            "department_key": collection_key,
+            "creator_email": user.email if user else data.get("contactEmail", ""),
+            "contactEmail": data.get("contactEmail") or (user.email if user else ""),
+            "creator_name": user.name if user else data.get("hiringManagerName", ""),
+            "hiringManagerName": data.get("hiringManagerName") or (user.name if user else ""),
+            "s3_url": s3_url,
+            "file_name": filename,
+        }
        
         insert_job_posting(collection_key, final_payload, vector)
        
@@ -292,6 +325,7 @@ def delete_job_description(request, job_id):
                         collection_name=collection_name,
                         points_selector=models.PointIdsList(points=[job_id]),
                     )
+                    ConfirmedMatch.objects.filter(jd_id=str(job_id)).delete()
                     print(f"✅ Deleted Qdrant record from {collection_name}")
                    
                     return Response({"message": "Job deleted successfully"}, status=status.HTTP_200_OK)
@@ -460,15 +494,18 @@ def publish_jd(request):
         user = AppUser.objects.get(id=user_id)
         data = request.data
         dept = user.department
-        collection_name = DEPARTMENT_MAPPING.get(dept, "engineering_it")
+        collection_name = _resolve_collection_key(dept) or "engineering_it"
  
         job_id = str(uuid.uuid4())
         payload = {
             "job_title": data.get("job_title"),
             "job_description": data.get("job_description"),
-            "department": dept,
+            "department": _resolve_department_label(dept, collection_name),
+            "department_key": collection_name,
             "creator_email": user.email,
+            "creator_name": user.name,
             "hiringManagerName": user.name, # ✅ Saves correctly
+            "contactEmail": user.email,
             "location": data.get("location", "Remote"),
             "job_type": data.get("job_type", "Full-time"),
             "status": "Open",
@@ -556,12 +593,10 @@ def list_jobs(request):
                     )
 
                     # 4. Department
-                    dept = (
-                        p.get("department") or 
-                        p.get("dept") or 
-                        collection_name.replace("_", " ").title() or 
-                        "General"
-                    )
+                    dept = _resolve_department_label(
+                        p.get("department") or p.get("department_key") or p.get("dept"),
+                        collection_name,
+                    ) or "General"
 
                     # 5. File Info
                     s3_url = p.get("s3_url") or p.get("fileUrl") or p.get("url")
@@ -674,6 +709,7 @@ def delete_jd(request, job_id):
             collection_name=collection_name,
             points_selector=models.PointIdsList(points=[job_id])
         )
+        ConfirmedMatch.objects.filter(jd_id=str(job_id)).delete()
         print(f"✅ Deleted from Qdrant: {job_id}")
        
         return Response({"message": "Job deleted successfully"}, status=200)
