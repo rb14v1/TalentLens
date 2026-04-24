@@ -156,8 +156,15 @@ const Upload = () => {
         const data = await uploadRes.json();
         if (!uploadRes.ok) {
           errorFiles.push(`${file.name}: ${data.error || "Upload failed"}`);
-        } else {
+        } else if ((data.uploaded_count || 0) > 0) {
           successFiles.push(file.name);
+        } else {
+          const backendDuplicates = data.duplicates || data.skipped_duplicates || [];
+          if (backendDuplicates.length) {
+            duplicateFiles.push(...backendDuplicates);
+          } else {
+            errorFiles.push(`${file.name}: upload did not create a new resume`);
+          }
         }
       }
  
