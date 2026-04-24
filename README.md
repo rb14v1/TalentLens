@@ -125,10 +125,17 @@ Frontend/
 ### 1. Backend Setup
 ```bash
 # Navigate to backend
-cd skill-analytics/Backend
+cd Backend
+
+# Create and activate a virtual environment (recommended)
+python -m venv venv
+venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Python 3.12 is the safest option for ML/NLP dependencies.
+# This repo's local setup also works on Python 3.13 after removing unused NLP packages.
 
 # Database Migration (Crucial for Hiring Stage feature)
 python manage.py makemigrations
@@ -138,10 +145,13 @@ python manage.py migrate
 python manage.py runserver
 ```
 
+By default, local development uses SQLite.
+To use PostgreSQL instead, set `DB_ENGINE=postgres` in `Backend/.env` and provide `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, and `DB_PORT`.
+
 ### 2. Frontend Setup
 ```bash
 # Navigate to frontend
-cd skill-analytics/Frontend
+cd Frontend
 
 # Install dependencies
 npm install

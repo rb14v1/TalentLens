@@ -255,6 +255,70 @@ def calculate_cpd_level(years: int) -> int:
     if years <= 8: return 4
     if years <= 12: return 5
     return 6
+
+
+def extract_experience_years(text: str) -> int:
+    """
+    Extract a conservative numeric experience value from resume text.
+    When a range is present we use the upper bound so analytics/search are
+    closer to the candidate's stated profile than the first number encountered.
+    """
+    if not text:
+        return 0
+
+    range_match = re.search(
+        r"(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*(?:\+?\s*)?(?:years|year|yrs?)",
+        text,
+        re.I,
+    )
+    if range_match:
+        try:
+            return int(range_match.group(2))
+        except Exception:
+            return 0
+
+    plus_match = re.search(r"(\d{1,2})\s*\+\s*(?:years|year|yrs?)", text, re.I)
+    if plus_match:
+        try:
+            return int(plus_match.group(1))
+        except Exception:
+            return 0
+
+    single_match = re.search(r"(\d{1,2})\s*(?:years|year|yrs?)", text, re.I)
+    if single_match:
+        try:
+            return int(single_match.group(1))
+        except Exception:
+            return 0
+
+    return 0
+
+
+def extract_cpd_level(text: str) -> int | None:
+    """
+    Prefer an explicitly stated CPD level from the resume when available.
+    """
+    if not text:
+        return None
+
+    patterns = [
+        r"\bCPD\s*Level\s*[:\-]?\s*(\d)\b",
+        r"\bCareer\s*Level\s*[:\-]?\s*(\d)\b",
+        r"\bLevel\s*(\d)\b",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if not match:
+            continue
+        try:
+            value = int(match.group(1))
+            if 1 <= value <= 6:
+                return value
+        except Exception:
+            continue
+
+    return None
  
 # ======================================================================
 #                MAIN EXTRACTION FUNCTION
@@ -309,13 +373,9 @@ Extract ONLY the candidate's real name (1–2 words). No titles.
     email = email_match.group(0).lower() if email_match else ""
  
     # ---------------- EXPERIENCE ----------------
-    exp = 0
-    m = re.search(r"(\d{1,2})\s*(years|year|yrs?)", text, re.I)
-    if m:
-        try:
-            exp = int(m.group(1))
-        except:
-            pass
+    exp = extract_experience_years(text)
+
+    explicit_cpd_level = extract_cpd_level(text)
  
     # ---------------- SKILLS ----------------
     raw = extract_skills_with_llama3(text)
@@ -329,7 +389,7 @@ Extract ONLY the candidate's real name (1–2 words). No titles.
         "candidate_name": candidate_name,
         "email": email,
         "experience_years": exp,
-        "cpd_level": calculate_cpd_level(exp),
+        "cpd_level": explicit_cpd_level or calculate_cpd_level(exp),
         "skills": normalized,
         "display_skills": sorted(expanded),
         "resume_text": text,

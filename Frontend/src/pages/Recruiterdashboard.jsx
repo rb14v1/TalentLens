@@ -59,31 +59,14 @@ const Recruiterdashboard = () => {
         }));
         setSkillData(skillsArray);
  
-        const total = Object.values(data.cpd_levels || {}).reduce((a, b) => a + b, 0);
-        setTotalResumes(total);
- 
-        setTopCPD(
-          cpdArray.reduce((max, curr) => (curr.value > max.value ? curr : max), { value: 0, raw: 0 })
-            .raw || 4
-        );
- 
-        // Avg experience calculation
-        const expWeights = { "0-2 yrs": 1, "3-5 yrs": 4, "6-10 yrs": 8, "10+ yrs": 12 };
-        let totalExp = 0;
-        let totalCount = 0;
- 
-        expArray.forEach((item) => {
-          const weight = expWeights[item.name] || 0;
-          totalExp += weight * item.value;
-          totalCount += item.value;
-        });
- 
-        setAvgExperience(totalCount > 0 ? (totalExp / totalCount).toFixed(1) : 0);
+        setTotalResumes(Number(data.total_resumes || 0));
+        setTopCPD(data.top_cpd_level || null);
+        setAvgExperience(Number(data.average_experience || 0).toFixed(1));
       })
       .finally(() => setLoading(false));
   }, []);
  
-  const hasData = cpdData.length || expData.length || skillData.length;
+  const hasData = totalResumes > 0;
  
   const handleDrill = (type, payload) => {
     navigate("/analytics-details", { state: { type, ...payload } });
@@ -155,7 +138,7 @@ const Recruiterdashboard = () => {
  
                 <MetricCard
                   icon={<Target size={28} />}
-                  value={`Level ${topCPD}`}
+                  value={topCPD ? `Level ${topCPD}` : "N/A"}
                   label="Top CPD Level"
                   color="from-[#4DD0E1] to-[#56C6C8]"
                 />
