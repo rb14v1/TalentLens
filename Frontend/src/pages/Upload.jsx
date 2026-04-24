@@ -15,8 +15,13 @@ import { API_BASE_URL } from "../config";
  
 // ---------------- SHA-256 HELPER ----------------
 const calculateFileHash = async (file) => {
+  if (!window.crypto || !window.crypto.subtle) {
+    // fallback for HTTP (temporary)
+    return `${file.name}-${file.size}-${file.lastModified}`;
+  }
+
   const buffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+  const hashBuffer = await window.crypto.subtle.digest("SHA-256", buffer);
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");

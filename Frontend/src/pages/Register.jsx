@@ -1,8 +1,7 @@
 import React, { useState } from "react";
-
 import axios from "axios";
 
-import { API_BASE_URL } from "../config";
+//import { API_BASE_URL } from "../config";
 
 import version1Banner from "../assets/version1-banner.png"; // ⭐ ADD IMAGE
  
@@ -56,7 +55,7 @@ function Register() {
  
     try {
 
-      await axios.post(`${API_BASE_URL}/register/`, payload);
+      await axios.post("/api/register/", payload);
  
       setSuccess("Registration successful. Redirecting to login...");
  

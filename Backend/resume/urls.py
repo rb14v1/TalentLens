@@ -13,7 +13,7 @@ from .views import (
  
 urlpatterns = [
     # ========== HOME ==========
-    path('', views.home, name='home'),
+    #  path('', views.home, name='home'),
    
     # ========== RESUME UPLOAD & MANAGEMENT ==========
     path('upload-resume/', views.ResumeUploadView.as_view(), name='upload_resume'),

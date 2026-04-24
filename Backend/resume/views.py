@@ -105,8 +105,8 @@ def _filename_to_point_id(fn: str) -> str:
 # -----------------------------
 # Home
 # -----------------------------
-def home(request):
-    return HttpResponse("Welcome to ProMatch Resume Portal!")
+ # def home(request):
+    #  return HttpResponse("Welcome to ProMatch Resume Portal!")
 
 
 # -----------------------------
@@ -1492,80 +1492,98 @@ from .models import AppUser
 import json
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth.hashers import make_password
  
 @csrf_exempt
 def register_user(request):
-    """Register a new user (Manager, Recruiter, Hiring Manager)."""
     if request.method != "POST":
         return JsonResponse({"error": "POST request required"}, status=400)
- 
+
     try:
         data = json.loads(request.body)
- 
+
         name = data.get("name")
         email = data.get("email")
         password = data.get("password")
         role = data.get("role")
-        department = data.get("department")  # ✅ Get department from request
- 
+        department = data.get("department")
+
         # Validate required fields
         if not all([name, email, password, role]):
             return JsonResponse({"error": "All fields are required"}, status=400)
- 
-        # Check if email already exists
+
+        # Email uniqueness check
         if AppUser.objects.filter(email=email).exists():
             return JsonResponse({"error": "Email already exists"}, status=400)
- 
-        # Validate hiring manager has department
+
+        # Hiring manager must have department
         if role == "hiring_manager" and not department:
-            return JsonResponse({"error": "Department is required for hiring managers"}, status=400)
- 
-        # Set department to None for non-hiring managers
+            return JsonResponse(
+                {"error": "Department is required for hiring managers"},
+                status=400,
+            )
+
+        # Clear department for other roles
         if role in ["recruiter", "manager"]:
             department = None
- 
-        # Create user with department
+
+        # ✅ Create user properly
         user = AppUser(
             name=name,
             email=email,
-            password=password,
             role=role,
-            department=department  # ✅ Save department
+            department=department,
         )
-        user.save()
- 
-        return JsonResponse({"message": "Registered successfully"}, status=201)
- 
+        user.password = make_password(password)  # ✅ hash password
+        user.save()                  # ✅ save to DB
+
+        return JsonResponse(
+            {
+                "message": "Registered successfully",
+                "user_id": user.id,
+                "email": user.email,
+                "role": user.role,
+            },
+            status=201,
+        )
+
     except Exception as e:
+        print("REGISTER ERROR:", e)  # 👈 helps debugging
         return JsonResponse({"error": str(e)}, status=500)
  
  
 # In Backend/resume/views.py
 
 # ... existing imports ...
+from django.contrib.auth.hashers import check_password
 
 @csrf_exempt
 def login_user(request):
-    """Login user and return their role for redirect."""
     if request.method != "POST":
         return JsonResponse({"error": "POST request required"}, status=400)
- 
+
     try:
         data = json.loads(request.body)
         email = data.get("email")
         password = data.get("password")
- 
+
+        if not email or not password:
+            return JsonResponse(
+                {"error": "Email and password required"},
+                status=400
+            )
+
         user = AppUser.objects.filter(email=email).first()
- 
+
         if user is None:
             return JsonResponse({"error": "Invalid email"}, status=400)
- 
-        if not user.check_password(password):
+
+        # ✅ FIX IS HERE
+        if not check_password(password, user.password):
             return JsonResponse({"error": "Invalid password"}, status=400)
- 
-        # ✅ CRITICAL FIX: Save User ID to session
-        # This creates the cookie so the server remembers you
-        request.session['user_id'] = user.id
+
+        # Optional session (works fine)
+        request.session["user_id"] = user.id
         request.session.modified = True
 
         return JsonResponse({
@@ -1573,10 +1591,11 @@ def login_user(request):
             "name": user.name,
             "department": user.department,
             "message": "Login successful"
-        })
- 
+        }, status=200)
+
     except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+        print("LOGIN ERROR:", e)
+        return JsonResponse({"error": "Server error"}, status=500)
 
 
 @api_view(['GET'])

@@ -17,7 +17,9 @@ function Login() {
     setError("");
  
     try {
-      const res = await axios.post(`${API_BASE_URL}/login/`, form, {
+      const res = await axios.post("/api/login/", form, {
+        
+
         headers: { "Content-Type": "application/json" },
         withCredentials: true,
       });

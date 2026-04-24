@@ -5,15 +5,15 @@ import Upload from "./pages/Upload";
 import Retrieve from "./pages/Retrieve";
 import Manageresume from "./pages/Manageresume";
 import Recruiterdashboard from "./pages/Recruiterdashboard";
-import AnalyticsDetails from "./pages/Analyticsdetails";
+import AnalyticsDetails from "./pages/AnalyticsDetails";
 import ViewResume from "./pages/ViewResume";
 import JobDescriptionMatch from "./pages/JobDescriptionMatch";
 // import Managerdashboard from "./pages/Managerdashboard";
 import Managerpage from "./pages/Managerpage";
 import Description from "./pages/Description";
 import Preview from "./pages/Preview";
-import Register from "./pages/register";
-import Login from "./pages/login";
+import Register from "./pages/Register";
+import Login from "./pages/Login";
 import PublishedJDs from "./pages/PublishedJDs"; // ✅ Correctly Imported
 import Drafts from "./pages/Drafts";
 import MatchedResume from "./pages/MatchedResume";
