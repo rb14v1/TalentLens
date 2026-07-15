@@ -159,3 +159,21 @@ npm install
 # Start Client
 npm run dev
 ```
+
+---
+
+## 🛡 Database Backup & Recovery
+
+TalentLens uses **AWS RDS PostgreSQL** in production with the following backup policy:
+
+| Setting | Value |
+|---|---|
+| Automated backups | Enabled (daily, 02:00–03:00 UTC) |
+| Retention period | **30 days** |
+| Point-in-time recovery (PITR) | Enabled automatically by RDS |
+| Cross-region backup replication | Automated replicas copied to a **separate AWS region** |
+| Encryption | AWS KMS |
+
+All backup infrastructure is defined in **`terraform/rds.tf`** and applied via Terraform.
+
+📄 **Restore procedure and pre-go-live test checklist:** [`docs/BACKUP_RESTORE.md`](docs/BACKUP_RESTORE.md)
