@@ -8,7 +8,12 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep secret key safe in .env
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-key")
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError(
+        "DJANGO_SECRET_KEY environment variable is not set. "
+        "Set it in your .env file or as an environment variable before starting the server."
+    )
 
 DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() == "true"
 
