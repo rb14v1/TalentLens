@@ -1,0 +1,12 @@
+# Copy this file to terraform.tfvars and fill in real values before deploying.
+# terraform.tfvars is gitignored — never commit it with real credentials.
+
+# --- Mandatory compliance tags (finops.resources_tagged) ---
+tenant_id     = "your-tenant-uuid"
+submission_id = "your-submission-id"
+cost_centre   = "your-cost-centre-code"
+
+# --- Infrastructure settings ---
+aws_region     = "us-east-1"   # match the value of AWS_REGION in Backend/.env
+s3_bucket_name = "talentlens-docs"  # match the value of S3_BUCKET in Backend/.env
+environment    = "prod"
